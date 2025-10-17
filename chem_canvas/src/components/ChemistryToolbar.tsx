@@ -18,7 +18,8 @@ import {
   Calculator,
   Grid3X3,
   Move,
-  RotateCw
+  RotateCw,
+  Microscope
 } from 'lucide-react';
 
 interface ChemistryToolbarProps {
@@ -31,6 +32,7 @@ interface ChemistryToolbarProps {
   onOpenCalculator?: () => void;
   onOpenMolView?: () => void;
   onOpenPeriodicTable?: () => void;
+  onOpenMoleculeSearch?: () => void;
 }
 
 const ChemistryToolbar: React.FC<ChemistryToolbarProps> = ({
@@ -42,7 +44,8 @@ const ChemistryToolbar: React.FC<ChemistryToolbarProps> = ({
   currentSize,
   onOpenCalculator,
   onOpenMolView,
-  onOpenPeriodicTable
+  onOpenPeriodicTable,
+  onOpenMoleculeSearch
 }) => {
   const [showShapes, setShowShapes] = useState(false);
 
@@ -72,6 +75,7 @@ const ChemistryToolbar: React.FC<ChemistryToolbarProps> = ({
     { id: 'calculator', name: 'Calculator', icon: Calculator, description: 'Quick calculations', isSpecial: true },
     { id: 'molview', name: '3D Molecules', icon: MolViewIcon, description: '3D molecular viewer', isSpecial: true },
     { id: 'periodic', name: 'Periodic Table', icon: Grid3X3, description: 'Interactive periodic table', isSpecial: true },
+    { id: 'molecules', name: 'Search Molecules', icon: Microscope, description: 'Search molecules from PubChem', isSpecial: true },
     { id: 'move', name: 'Move', icon: Move, description: 'Move elements' },
     { id: 'rotate', name: 'Rotate', icon: RotateCw, description: 'Rotate elements' },
   ];
@@ -118,6 +122,8 @@ const ChemistryToolbar: React.FC<ChemistryToolbarProps> = ({
                   onOpenMolView();
                 } else if (tool.isSpecial && tool.id === 'periodic' && onOpenPeriodicTable) {
                   onOpenPeriodicTable();
+                } else if (tool.isSpecial && tool.id === 'molecules' && onOpenMoleculeSearch) {
+                  onOpenMoleculeSearch();
                 } else {
                   onToolSelect(tool.id);
                 }

@@ -861,6 +861,7 @@ export default function Canvas({
             onOpenCalculator={onOpenCalculator}
             onOpenMolView={onOpenMolView}
             onOpenPeriodicTable={onOpenPeriodicTable}
+            onOpenMoleculeSearch={() => setShowMoleculeSearch(true)}
           />
         </div>
       )}
@@ -1245,6 +1246,7 @@ export default function Canvas({
             onOpenCalculator={onOpenCalculator}
             onOpenMolView={onOpenMolView}
             onOpenPeriodicTable={onOpenPeriodicTable}
+            onOpenMoleculeSearch={() => setShowMoleculeSearch(true)}
           />
         </div>
       )}

@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Search, X, Loader2, AlertCircle } from 'lucide-react';
-import { fetchMoleculeStructure, type MoleculeData } from '../services/pubchemService';
+import { Search, X, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
+import { getMoleculeByName, type MoleculeData } from '../services/pubchemService';
 
 interface MoleculeSearchProps {
   onSelectMolecule?: (moleculeData: MoleculeData) => void;
@@ -15,9 +15,7 @@ export default function MoleculeSearch({ onSelectMolecule, isOpen = true, onClos
   const [error, setError] = useState<string | null>(null);
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
+  const handleSearch = async () => {
     if (!searchTerm.trim()) {
       setError('Please enter a molecule name');
       return;
@@ -28,68 +26,85 @@ export default function MoleculeSearch({ onSelectMolecule, isOpen = true, onClos
     setMoleculeData(null);
 
     try {
-      const data = await fetchMoleculeStructure(searchTerm);
+      console.log(`Searching for molecule: ${searchTerm}`);
+      const data = await getMoleculeByName(searchTerm);
       
       if (data) {
         setMoleculeData(data);
-        setSearchHistory(prev => [searchTerm, ...prev.filter(item => item !== searchTerm)].slice(0, 5));
+        // Add to search history
+        if (!searchHistory.includes(searchTerm)) {
+          setSearchHistory([searchTerm, ...searchHistory].slice(0, 5));
+        }
         setError(null);
       } else {
-        setError(`Molecule "${searchTerm}" not found. Try a different name.`);
+        setError(`Molecule "${searchTerm}" not found in PubChem database. Try another name.`);
       }
     } catch (err) {
-      setError('Error fetching molecule data. Please try again.');
-      console.error(err);
+      console.error('Search error:', err);
+      setError('Failed to search molecule. Please try again.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleSearch();
     }
   };
 
   const handleInsertMolecule = () => {
     if (moleculeData && onSelectMolecule) {
       onSelectMolecule(moleculeData);
+      setMoleculeData(null);
+      setSearchTerm('');
+      if (onClose) onClose();
     }
+  };
+
+  const handleHistoryClick = (term: string) => {
+    setSearchTerm(term);
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-slate-800 rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-slate-700">
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+      <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl max-w-2xl w-full mx-4 overflow-hidden">
         {/* Header */}
-        <div className="sticky top-0 bg-gradient-to-r from-slate-800 to-slate-700 border-b border-slate-700 px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Search size={24} className="text-primary" />
+        <div className="bg-gradient-to-r from-blue-600 to-cyan-600 px-6 py-4 flex justify-between items-center">
+          <div className="flex items-center gap-2">
+            <Search size={24} className="text-white" />
             <h2 className="text-xl font-bold text-white">Search Molecules</h2>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1 hover:bg-slate-700 rounded-lg transition-colors"
-          >
-            <X size={24} className="text-slate-400" />
-          </button>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="text-white hover:bg-white/20 p-1 rounded transition"
+            >
+              <X size={24} />
+            </button>
+          )}
         </div>
 
         {/* Content */}
-        <div className="p-6 space-y-6">
-          {/* Search Form */}
-          <form onSubmit={handleSearch} className="space-y-3">
-            <label className="block text-sm font-medium text-slate-300">
-              Molecule Name
-            </label>
+        <div className="p-6 space-y-4">
+          {/* Search Input */}
+          <div className="space-y-2">
+            <label className="text-sm font-semibold text-slate-300">Molecule Name</label>
             <div className="flex gap-2">
               <input
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
+                onKeyPress={handleKeyPress}
                 placeholder="e.g., benzene, glucose, caffeine, water..."
-                className="flex-1 px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                disabled={isLoading}
+                className="flex-1 px-4 py-2 bg-slate-800 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
               />
               <button
-                type="submit"
+                onClick={handleSearch}
                 disabled={isLoading}
-                className="px-4 py-2 bg-primary hover:bg-primary/90 disabled:bg-primary/50 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 text-white rounded-lg flex items-center gap-2 transition"
               >
                 {isLoading ? (
                   <>
@@ -104,29 +119,18 @@ export default function MoleculeSearch({ onSelectMolecule, isOpen = true, onClos
                 )}
               </button>
             </div>
-          </form>
-
-          {/* Error Message */}
-          {error && (
-            <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg flex items-start gap-3">
-              <AlertCircle size={20} className="text-red-400 flex-shrink-0 mt-0.5" />
-              <p className="text-red-300 text-sm">{error}</p>
-            </div>
-          )}
+          </div>
 
           {/* Search History */}
           {searchHistory.length > 0 && !moleculeData && (
             <div className="space-y-2">
-              <p className="text-xs font-medium text-slate-400 uppercase">Recent Searches</p>
+              <label className="text-sm font-semibold text-slate-300">Recent Searches</label>
               <div className="flex flex-wrap gap-2">
                 {searchHistory.map((term) => (
                   <button
                     key={term}
-                    onClick={() => {
-                      setSearchTerm(term);
-                      setSearchTerm(term);
-                    }}
-                    className="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm rounded-full transition-colors"
+                    onClick={() => handleHistoryClick(term)}
+                    className="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-full text-sm transition"
                   >
                     {term}
                   </button>
@@ -135,72 +139,79 @@ export default function MoleculeSearch({ onSelectMolecule, isOpen = true, onClos
             </div>
           )}
 
-          {/* Molecule Results */}
+          {/* Error Message */}
+          {error && (
+            <div className="flex gap-3 p-4 bg-red-900/30 border border-red-600/50 rounded-lg">
+              <AlertCircle size={20} className="text-red-500 flex-shrink-0 mt-0.5" />
+              <p className="text-red-300 text-sm">{error}</p>
+            </div>
+          )}
+
+          {/* Molecule Details */}
           {moleculeData && (
-            <div className="space-y-4 border-t border-slate-700 pt-6">
-              {/* Molecule Information */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs font-medium text-slate-400 uppercase">Name</label>
-                  <p className="text-lg font-semibold text-white mt-1">{moleculeData.name}</p>
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-slate-400 uppercase">CID</label>
-                  <p className="text-lg font-semibold text-primary mt-1">{moleculeData.cid}</p>
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-slate-400 uppercase">Molecular Formula</label>
-                  <p className="text-lg font-mono text-slate-300 mt-1">{moleculeData.molecularFormula}</p>
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-slate-400 uppercase">Molecular Weight</label>
-                  <p className="text-lg font-semibold text-slate-300 mt-1">{moleculeData.molecularWeight.toFixed(2)} g/mol</p>
+            <div className="space-y-4 border border-slate-700 rounded-lg p-4 bg-slate-800/50">
+              <div className="flex justify-between items-start">
+                <div className="space-y-2 flex-1">
+                  <h3 className="text-lg font-bold text-white">{moleculeData.name}</h3>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <p className="text-slate-400">Molecular Formula</p>
+                      <p className="text-cyan-400 font-mono">{moleculeData.molecularFormula}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-400">Molecular Weight</p>
+                      <p className="text-cyan-400 font-mono">{moleculeData.molecularWeight.toFixed(2)} g/mol</p>
+                    </div>
+                    <div className="col-span-2">
+                      <p className="text-slate-400">SMILES</p>
+                      <p className="text-cyan-400 font-mono text-xs break-all">{moleculeData.smiles}</p>
+                    </div>
+                    <div className="col-span-2">
+                      <p className="text-slate-400">PubChem CID</p>
+                      <p className="text-cyan-400 font-mono">{moleculeData.cid}</p>
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              {/* 2D Structure Image */}
-              <div className="space-y-3">
-                <label className="text-xs font-medium text-slate-400 uppercase">2D Structure</label>
-                <div className="bg-white p-4 rounded-lg flex items-center justify-center">
+              {/* Structure Display */}
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-slate-300">2D Structure</p>
+                {moleculeData.svgData ? (
+                  <div
+                    dangerouslySetInnerHTML={{ __html: moleculeData.svgData }}
+                    className="bg-white p-2 rounded border border-slate-600 flex justify-center"
+                    style={{ maxHeight: '300px', overflowY: 'auto' }}
+                  />
+                ) : (
                   <img
                     src={moleculeData.svgUrl}
                     alt={moleculeData.name}
-                    className="max-w-full max-h-64 object-contain"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"%3E%3Ctext x="50" y="50" text-anchor="middle" dy=".3em" fill="gray"%3EImage not available%3C/text%3E%3C/svg%3E';
-                    }}
+                    className="bg-white p-2 rounded border border-slate-600 w-full max-h-80 object-contain"
                   />
-                </div>
+                )}
               </div>
 
-              {/* SMILES */}
-              {moleculeData.smiles && (
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-slate-400 uppercase">SMILES</label>
-                  <div className="bg-slate-700/50 p-3 rounded-lg">
-                    <code className="text-xs text-slate-300 break-all font-mono">{moleculeData.smiles}</code>
-                  </div>
-                </div>
-              )}
+              {/* Insert Button */}
+              <button
+                onClick={handleInsertMolecule}
+                className="w-full px-4 py-3 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white rounded-lg font-semibold flex items-center justify-center gap-2 transition"
+              >
+                <CheckCircle size={20} />
+                Insert into Canvas
+              </button>
+            </div>
+          )}
 
-              {/* Action Buttons */}
-              <div className="flex gap-3 pt-4 border-t border-slate-700">
-                <button
-                  onClick={handleInsertMolecule}
-                  className="flex-1 px-4 py-3 bg-primary hover:bg-primary/90 text-white rounded-lg font-medium transition-colors"
-                >
-                  Insert into Canvas
-                </button>
-                <button
-                  onClick={() => {
-                    setMoleculeData(null);
-                    setSearchTerm('');
-                  }}
-                  className="flex-1 px-4 py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg font-medium transition-colors"
-                >
-                  Search Another
-                </button>
-              </div>
+          {/* Tips */}
+          {!moleculeData && !error && (
+            <div className="bg-slate-800/50 border border-slate-600 rounded-lg p-4 space-y-2">
+              <p className="text-sm font-semibold text-slate-300">💡 Tips:</p>
+              <ul className="text-sm text-slate-400 space-y-1 list-disc list-inside">
+                <li>Try common molecule names: benzene, glucose, caffeine, water, ethanol</li>
+                <li>Use IUPAC names for more specific results</li>
+                <li>Results include molecular formula, weight, and 2D structure</li>
+              </ul>
             </div>
           )}
         </div>
