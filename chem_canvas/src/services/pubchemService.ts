@@ -101,6 +101,29 @@ export const fetchMoleculeStructure = async (cid: number): Promise<MoleculeData 
   }
 };
 
+// Fetch 2D structure image URLs by CID (similar to MolView for 3D)
+export const get2DStructureUrl = (cid: number, imageSize: number = 400): string => {
+  // PNG format
+  return `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/CID/${cid}/PNG?image_size=${imageSize}x${imageSize}`;
+};
+
+// Get high-quality 2D structure PNG by CID
+export const get2DStructurePNG = async (cid: number, imageSize: number = 500): Promise<string | null> => {
+  try {
+    const url = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/CID/${cid}/PNG?image_size=${imageSize}x${imageSize}`;
+    const response = await fetch(url);
+    
+    if (response.ok) {
+      const blob = await response.blob();
+      return URL.createObjectURL(blob);
+    }
+    return null;
+  } catch (error) {
+    console.error('Error fetching 2D structure PNG:', error);
+    return null;
+  }
+};
+
 // Fetch SVG data for a molecule
 export const getMoleculeSVG = async (cid: number): Promise<string | null> => {
   try {
@@ -116,6 +139,16 @@ export const getMoleculeSVG = async (cid: number): Promise<string | null> => {
     console.error('Error fetching SVG:', error);
     return null;
   }
+};
+
+// Create MolView embed URL using CID (for 3D structures)
+export const getMolViewUrl = (cid: number, mode: string = 'balls'): string => {
+  return `https://embed.molview.org/v1/?mode=${mode}&cid=${cid}`;
+};
+
+// Create MolView URL using SMILES (alternative method)
+export const getMolViewUrlFromSmiles = (smiles: string, mode: string = 'balls'): string => {
+  return `https://embed.molview.org/v1/?mode=${mode}&smiles=${encodeURIComponent(smiles)}`;
 };
 
 // Fetch molecule by name (combined search + fetch)
@@ -141,6 +174,25 @@ export const getMoleculeByName = async (moleculeName: string): Promise<MoleculeD
     return moleculeData;
   } catch (error) {
     console.error('Error getting molecule by name:', error);
+    return null;
+  }
+};
+
+// Fetch molecule by CID directly (useful when you already have the CID)
+export const getMoleculeByCID = async (cid: number): Promise<MoleculeData | null> => {
+  try {
+    console.log(`🔍 Fetching molecule with CID: ${cid}`);
+    const moleculeData = await fetchMoleculeStructure(cid);
+    
+    if (!moleculeData) {
+      console.error(`Failed to fetch molecule data for CID ${cid}`);
+      return null;
+    }
+    
+    console.log(`✅ Retrieved molecule: ${moleculeData.name}`);
+    return moleculeData;
+  } catch (error) {
+    console.error('Error fetching molecule by CID:', error);
     return null;
   }
 };

@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Search, X, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
-import { getMoleculeByName, type MoleculeData } from '../services/pubchemService';
+import { Search, X, Loader2, AlertCircle, CheckCircle, Eye } from 'lucide-react';
+import { getMoleculeByName, get2DStructureUrl, getMolViewUrl, type MoleculeData } from '../services/pubchemService';
 
 interface MoleculeSearchProps {
   onSelectMolecule?: (moleculeData: MoleculeData) => void;
@@ -64,6 +64,13 @@ export default function MoleculeSearch({ onSelectMolecule, isOpen = true, onClos
 
   const handleHistoryClick = (term: string) => {
     setSearchTerm(term);
+  };
+
+  const handleView3D = () => {
+    if (moleculeData) {
+      const molViewUrl = getMolViewUrl(moleculeData.cid, 'balls');
+      window.open(molViewUrl, '_blank');
+    }
   };
 
   if (!isOpen) return null;
@@ -174,9 +181,19 @@ export default function MoleculeSearch({ onSelectMolecule, isOpen = true, onClos
                 </div>
               </div>
 
-              {/* Structure Display */}
+              {/* 2D Structure Display */}
               <div className="space-y-2">
-                <p className="text-sm font-semibold text-slate-300">2D Structure</p>
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-slate-300">2D Structure</p>
+                  <button
+                    onClick={handleView3D}
+                    className="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs flex items-center gap-2 transition"
+                    title="View 3D structure in MolView"
+                  >
+                    <Eye size={14} />
+                    View 3D
+                  </button>
+                </div>
                 {moleculeData.svgData ? (
                   <div
                     dangerouslySetInnerHTML={{ __html: moleculeData.svgData }}
@@ -185,21 +202,27 @@ export default function MoleculeSearch({ onSelectMolecule, isOpen = true, onClos
                   />
                 ) : (
                   <img
-                    src={moleculeData.svgUrl}
+                    src={get2DStructureUrl(moleculeData.cid, 500)}
                     alt={moleculeData.name}
                     className="bg-white p-2 rounded border border-slate-600 w-full max-h-80 object-contain"
+                    onError={(e) => {
+                      // Fallback if image fails to load
+                      console.error('Failed to load structure image');
+                    }}
                   />
                 )}
               </div>
 
-              {/* Insert Button */}
-              <button
-                onClick={handleInsertMolecule}
-                className="w-full px-4 py-3 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white rounded-lg font-semibold flex items-center justify-center gap-2 transition"
-              >
-                <CheckCircle size={20} />
-                Insert into Canvas
-              </button>
+              {/* Action Buttons */}
+              <div className="flex gap-3">
+                <button
+                  onClick={handleInsertMolecule}
+                  className="flex-1 px-4 py-3 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white rounded-lg font-semibold flex items-center justify-center gap-2 transition"
+                >
+                  <CheckCircle size={20} />
+                  Insert into Canvas
+                </button>
+              </div>
             </div>
           )}
 
@@ -211,6 +234,7 @@ export default function MoleculeSearch({ onSelectMolecule, isOpen = true, onClos
                 <li>Try common molecule names: benzene, glucose, caffeine, water, ethanol</li>
                 <li>Use IUPAC names for more specific results</li>
                 <li>Results include molecular formula, weight, and 2D structure</li>
+                <li>Click "View 3D" to see the 3D structure in MolView</li>
               </ul>
             </div>
           )}
