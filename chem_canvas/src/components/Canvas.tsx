@@ -1,7 +1,9 @@
 import { useRef, useEffect, useState } from 'react';
-import { ZoomIn, ZoomOut, Grid3x3, RotateCcw, CheckCircle, AlertCircle, Loader2, Trash2, Brain, Sparkles, Atom, Beaker } from 'lucide-react';
+import { ZoomIn, ZoomOut, Grid3x3, RotateCcw, CheckCircle, AlertCircle, Loader2, Trash2, Brain, Sparkles, Atom, Beaker, Molecules } from 'lucide-react';
 import { analyzeCanvasWithLLM, getStoredAPIKey, type Correction, type CanvasAnalysisResult } from '../services/canvasAnalyzer';
 import { convertCanvasToChemistry } from '../services/chemistryConverter';
+import MoleculeSearch from './MoleculeSearch';
+import { type MoleculeData } from '../services/pubchemService';
 import ChemistryToolbar from './ChemistryToolbar';
 import ChemistryStructureViewer from './ChemistryStructureViewer';
 
@@ -40,6 +42,7 @@ export default function Canvas({
   const [chemistryStructure, setChemistryStructure] = useState<any>(null);
   const [isConverting, setIsConverting] = useState(false);
   const [canvasBackground, setCanvasBackground] = useState<'dark' | 'white'>('dark');
+  const [showMoleculeSearch, setShowMoleculeSearch] = useState(false);
 
   // Arrow drawing state - single resizable arrow
   const [arrowState, setArrowState] = useState<{
@@ -862,6 +865,17 @@ export default function Canvas({
         </div>
       )}
 
+      {/* Molecule Search Button */}
+      <div className="absolute top-4 right-16 z-10">
+        <button
+          onClick={() => setShowMoleculeSearch(true)}
+          className="p-2 bg-slate-800/90 backdrop-blur-sm border border-slate-700/50 rounded-xl shadow-lg transition-all text-slate-300 hover:bg-slate-700/50"
+          title="Search Molecules"
+        >
+          <Molecules size={18} />
+        </button>
+      </div>
+
       {/* Help Instructions - Bottom Left */}
       <div className="absolute bottom-4 left-4 z-10 bg-slate-800/90 backdrop-blur-sm border border-slate-700/50 rounded-xl p-3 shadow-lg max-w-sm">
         <div className="mb-2">
@@ -1241,6 +1255,18 @@ export default function Canvas({
           structure={chemistryStructure}
           onClose={() => setShowChemistryViewer(false)}
           onRegenerate={convertToChemistry}
+        />
+      )}
+
+      {/* Molecule Search Modal */}
+      {showMoleculeSearch && (
+        <MoleculeSearch
+          onClose={() => setShowMoleculeSearch(false)}
+          onSelectMolecule={(molecule) => {
+            // Placeholder for adding molecule to canvas
+            console.log('Selected molecule:', molecule);
+            setShowMoleculeSearch(false);
+          }}
         />
       )}
     </div>
