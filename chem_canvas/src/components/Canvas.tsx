@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState } from 'react';
-import { ZoomIn, ZoomOut, Grid3x3, RotateCcw, CheckCircle, AlertCircle, Loader2, Trash2, Brain, Sparkles, Atom, Beaker, Molecules } from 'lucide-react';
+import { ZoomIn, ZoomOut, Grid3x3, RotateCcw, CheckCircle, AlertCircle, Loader2, Trash2, Brain, Sparkles, Atom, Beaker } from 'lucide-react';
 import { analyzeCanvasWithLLM, getStoredAPIKey, type Correction, type CanvasAnalysisResult } from '../services/canvasAnalyzer';
 import { convertCanvasToChemistry } from '../services/chemistryConverter';
 import MoleculeSearch from './MoleculeSearch';
@@ -872,7 +872,7 @@ export default function Canvas({
           className="p-2 bg-slate-800/90 backdrop-blur-sm border border-slate-700/50 rounded-xl shadow-lg transition-all text-slate-300 hover:bg-slate-700/50"
           title="Search Molecules"
         >
-          <Molecules size={18} />
+          <Atom size={18} />
         </button>
       </div>
 
