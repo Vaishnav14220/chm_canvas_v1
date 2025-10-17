@@ -55,7 +55,18 @@ export default function MoleculeSearch({ onSelectMolecule, isOpen = true, onClos
 
   const handleInsertMolecule = () => {
     if (moleculeData && onSelectMolecule) {
-      onSelectMolecule(moleculeData);
+      // Pass complete molecule data for canvas insertion
+      const moleculeObject = {
+        name: moleculeData.name,
+        cid: moleculeData.cid,
+        formula: moleculeData.molecularFormula,
+        weight: moleculeData.molecularWeight,
+        svgUrl: moleculeData.svgUrl,
+        svgData: moleculeData.svgData,
+        smiles: moleculeData.smiles,
+      };
+      
+      onSelectMolecule(moleculeObject);
       setMoleculeData(null);
       setSearchTerm('');
       if (onClose) onClose();

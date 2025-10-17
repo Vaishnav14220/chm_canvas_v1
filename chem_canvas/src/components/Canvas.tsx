@@ -14,6 +14,7 @@ interface CanvasProps {
   onOpenCalculator?: () => void;
   onOpenMolView?: () => void;
   onOpenPeriodicTable?: () => void;
+  onMoleculeInserted?: (moleculeData: any) => void;
 }
 
 export default function Canvas({
@@ -22,7 +23,8 @@ export default function Canvas({
   strokeColor,
   onOpenCalculator,
   onOpenMolView,
-  onOpenPeriodicTable
+  onOpenPeriodicTable,
+  onMoleculeInserted
 }: CanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -57,7 +59,7 @@ export default function Canvas({
   // Shape tracking for repositioning
   interface Shape {
     id: string;
-    type: 'arrow' | 'circle' | 'square' | 'triangle' | 'hexagon' | 'plus' | 'minus';
+    type: 'arrow' | 'circle' | 'square' | 'triangle' | 'hexagon' | 'plus' | 'minus' | 'molecule';
     startX: number;
     startY: number;
     endX: number;
@@ -65,6 +67,16 @@ export default function Canvas({
     color: string;
     size: number;
     rotation: number;  // Rotation in degrees (0-360)
+    // Molecule-specific properties
+    moleculeData?: {
+      name: string;
+      cid: number;
+      formula: string;
+      weight: number;
+      svgUrl: string;
+      svgData?: string;
+      smiles: string;
+    };
   }
 
   const [shapes, setShapes] = useState<Shape[]>([]);
@@ -530,6 +542,37 @@ export default function Canvas({
     ctx.stroke();
   };
 
+  const drawMolecule = (ctx: CanvasRenderingContext2D, shape: Shape) => {
+    if (!shape.moleculeData || !shape.moleculeData.svgData) {
+      console.warn('Molecule data or SVG data not available for shape:', shape);
+      return;
+    }
+
+    const svgString = shape.moleculeData.svgData;
+    const parser = new DOMParser();
+    const svgDoc = parser.parseFromString(svgString, 'image/svg+xml');
+    const svgElement = svgDoc.documentElement;
+
+    // Scale SVG to fit the shape's size
+    const scale = shape.size / 200; // Assuming a default size of 200 for the SVG
+    svgElement.setAttribute('width', `${shape.size}`);
+    svgElement.setAttribute('height', `${shape.size}`);
+
+    // Apply rotation
+    const centerX = shape.startX + (shape.endX - shape.startX) / 2;
+    const centerY = shape.startY + (shape.endY - shape.startY) / 2;
+
+    ctx.save();
+    ctx.translate(centerX, centerY);
+    ctx.rotate((shape.rotation * Math.PI) / 180);
+    ctx.translate(-centerX, -centerY);
+
+    // Draw the SVG element
+    ctx.drawImage(svgElement, shape.startX, shape.startY, shape.size, shape.size);
+
+    ctx.restore();
+  };
+
   const stopDrawing = () => {
     // Stop rotating shape
     if (isRotatingShape) {
@@ -611,6 +654,8 @@ export default function Canvas({
         drawPlus(ctx, centerX, centerY, distance / 2, shape.size, shape.color);
       } else if (shape.type === 'minus') {
         drawMinus(ctx, centerX, centerY, distance / 2, shape.size, shape.color);
+      } else if (shape.type === 'molecule') {
+        drawMolecule(ctx, shape);
       }
 
       // Restore context if rotation was applied
@@ -1264,9 +1309,45 @@ export default function Canvas({
       {showMoleculeSearch && (
         <MoleculeSearch
           onClose={() => setShowMoleculeSearch(false)}
-          onSelectMolecule={(molecule) => {
-            // Placeholder for adding molecule to canvas
-            console.log('Selected molecule:', molecule);
+          onSelectMolecule={(moleculeData) => {
+            // Add molecule to canvas at center position
+            const canvas = canvasRef.current;
+            if (canvas) {
+              const centerX = canvas.width / 2;
+              const centerY = canvas.height / 2;
+              
+              const newMolecule: Shape = {
+                id: `molecule-${Date.now()}`,
+                type: 'molecule',
+                startX: centerX,
+                startY: centerY,
+                endX: centerX + 100,
+                endY: centerY + 100,
+                color: chemistryColor,
+                size: chemistrySize,
+                rotation: 0,
+                moleculeData: {
+                  name: moleculeData.name,
+                  cid: moleculeData.cid,
+                  formula: moleculeData.formula,
+                  weight: moleculeData.weight,
+                  svgUrl: moleculeData.svgUrl,
+                  svgData: moleculeData.svgData,
+                  smiles: moleculeData.smiles,
+                }
+              };
+              
+              // Add to shapes array
+              setShapes([...shapes, newMolecule]);
+              canvasHistoryRef.current = [...shapes, newMolecule];
+              
+              // Callback if provided
+              if (onMoleculeInserted) {
+                onMoleculeInserted(moleculeData);
+              }
+              
+              console.log('✅ Molecule added to canvas:', newMolecule);
+            }
             setShowMoleculeSearch(false);
           }}
         />
