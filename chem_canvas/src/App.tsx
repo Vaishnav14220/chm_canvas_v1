@@ -621,624 +621,624 @@ const App: React.FC = () => {
           />
         </div>
       ) : (
-        <div className="flex h-[calc(100vh-5rem)]">
-          {/* Sources Panel */}
-          {documentViewerOpen && (
-            <>
-              <div 
-                className="border-r-2 border-border bg-card flex flex-col shadow-lg"
-                style={{ width: sourcesWidth }}
-              >
-                {/* Sources Header */}
-                <div className="px-6 py-4 border-b border-border bg-muted/50">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary">
-                        <FileText className="h-4 w-4 text-primary-foreground" />
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-semibold">Sources</h3>
-                        <p className="text-xs text-muted-foreground">Add documents, videos & links</p>
-                      </div>
+      <div className="flex h-[calc(100vh-5rem)]">
+        {/* Sources Panel */}
+        {documentViewerOpen && (
+          <>
+            <div 
+              className="border-r-2 border-border bg-card flex flex-col shadow-lg"
+              style={{ width: sourcesWidth }}
+            >
+              {/* Sources Header */}
+              <div className="px-6 py-4 border-b border-border bg-muted/50">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary">
+                      <FileText className="h-4 w-4 text-primary-foreground" />
                     </div>
+                    <div>
+                      <h3 className="text-sm font-semibold">Sources</h3>
+                      <p className="text-xs text-muted-foreground">Add documents, videos & links</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setDocumentViewerOpen(false)}
+                    className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-8 w-8"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+
+              {/* Source Type Tabs */}
+              <div className="px-6 py-3 border-b border-border">
+                <div className="grid grid-cols-5 gap-1 bg-muted/30 rounded-lg p-1">
+                  {[
+                    { type: 'document', icon: File, label: 'Docs', color: 'text-blue-500' },
+                    { type: 'youtube', icon: Video, label: 'Video', color: 'text-red-500' },
+                    { type: 'weblink', icon: Globe, label: 'Web', color: 'text-green-500' },
+                    { type: 'image', icon: Upload, label: 'Image', color: 'text-purple-500' },
+                    { type: 'paste', icon: Clipboard, label: 'Paste', color: 'text-orange-500' }
+                  ].map(({ type, icon: Icon, label, color }) => (
                     <button
-                      onClick={() => setDocumentViewerOpen(false)}
-                      className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-8 w-8"
+                      key={type}
+                      onClick={() => setActiveSourceType(type as any)}
+                      className={`flex flex-col items-center justify-center py-3 px-2 rounded-md text-xs font-medium transition-all duration-200 ${
+                        activeSourceType === type
+                          ? 'bg-primary text-primary-foreground shadow-sm'
+                          : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                      }`}
                     >
-                      ✕
+                      <Icon className={`h-5 w-5 mb-1 ${activeSourceType === type ? 'text-primary-foreground' : color}`} />
+                      <span className="text-xs">{label}</span>
                     </button>
-                  </div>
+                  ))}
                 </div>
-
-                {/* Source Type Tabs */}
-                <div className="px-6 py-3 border-b border-border">
-                  <div className="grid grid-cols-5 gap-1 bg-muted/30 rounded-lg p-1">
-                    {[
-                      { type: 'document', icon: File, label: 'Docs', color: 'text-blue-500' },
-                      { type: 'youtube', icon: Video, label: 'Video', color: 'text-red-500' },
-                      { type: 'weblink', icon: Globe, label: 'Web', color: 'text-green-500' },
-                      { type: 'image', icon: Upload, label: 'Image', color: 'text-purple-500' },
-                      { type: 'paste', icon: Clipboard, label: 'Paste', color: 'text-orange-500' }
-                    ].map(({ type, icon: Icon, label, color }) => (
-                      <button
-                        key={type}
-                        onClick={() => setActiveSourceType(type as any)}
-                        className={`flex flex-col items-center justify-center py-3 px-2 rounded-md text-xs font-medium transition-all duration-200 ${
-                          activeSourceType === type
-                            ? 'bg-primary text-primary-foreground shadow-sm'
-                            : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-                        }`}
-                      >
-                        <Icon className={`h-5 w-5 mb-1 ${activeSourceType === type ? 'text-primary-foreground' : color}`} />
-                        <span className="text-xs">{label}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                
-                {/* Add Source Section */}
-                <div className="p-6 border-b border-border">
-                  {activeSourceType === 'document' && (
-                    <div className="space-y-4">
-                      <div className="flex items-center space-x-2">
-                        <File className="h-5 w-5 text-blue-500" />
-                        <span className="text-sm font-medium">Upload Document</span>
-                      </div>
-                      <label className="w-full cursor-pointer block">
-                        <div className="border-2 border-dashed border-blue-300 hover:border-blue-400 bg-blue-50/10 hover:bg-blue-50/20 rounded-xl p-8 transition-all duration-300">
-                          <div className="flex flex-col items-center space-y-4">
-                            <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-blue-500 shadow-lg">
-                              <File className="h-8 w-8 text-white" />
-                            </div>
-                            <div className="text-center">
-                              <p className="text-sm font-semibold text-blue-600">Drop your document here</p>
-                              <p className="text-xs text-muted-foreground mt-1">PDF, TXT, MD files supported</p>
-                            </div>
-                          </div>
-                        </div>
-                        <input
-                          type="file"
-                          accept=".pdf,.txt,.md"
-                          onChange={async (e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              if (file.type === 'text/plain') {
-                                const text = await file.text();
-                                addSource('document', {
-                                  title: file.name,
-                                  content: text,
-                                  description: `${text.length} characters`
-                                });
-                              } else {
-                                alert('PDF support coming soon! Try uploading a .txt file.');
-                              }
-                            }
-                          }}
-                          className="hidden"
-                        />
-                      </label>
-                    </div>
-                  )}
-
-                  {activeSourceType === 'youtube' && (
-                    <div className="space-y-4">
-                      <div className="flex items-center space-x-2">
-                        <Video className="h-5 w-5 text-red-500" />
-                        <span className="text-sm font-medium">Add YouTube Video</span>
-                      </div>
-                      <div className="space-y-3">
-                        <div className="relative">
-                          <input
-                            type="text"
-                            placeholder="Video title"
-                            className="w-full px-4 py-3 bg-muted border border-red-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all"
-                            id="youtube-title"
-                          />
-                        </div>
-                        <div className="relative">
-                          <input
-                            type="url"
-                            placeholder="YouTube URL (e.g., https://youtube.com/watch?v=...)"
-                            className="w-full px-4 py-3 bg-muted border border-red-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all"
-                            id="youtube-url"
-                          />
-                        </div>
-                        <button
-                          onClick={() => {
-                            const title = (document.getElementById('youtube-title') as HTMLInputElement)?.value;
-                            const url = (document.getElementById('youtube-url') as HTMLInputElement)?.value;
-                            if (title && url) {
-                              addSource('youtube', { title, url, description: 'YouTube video' });
-                              (document.getElementById('youtube-title') as HTMLInputElement).value = '';
-                              (document.getElementById('youtube-url') as HTMLInputElement).value = '';
-                            }
-                          }}
-                          className="w-full py-3 px-4 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-semibold transition-all duration-200 shadow-lg hover:shadow-xl"
-                        >
-                          Add Video
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {activeSourceType === 'weblink' && (
-                    <div className="space-y-4">
-                      <div className="flex items-center space-x-2">
-                        <Globe className="h-5 w-5 text-green-500" />
-                        <span className="text-sm font-medium">Add Web Link</span>
-                      </div>
-                      <div className="space-y-3">
-                        <div className="relative">
-                          <input
-                            type="text"
-                            placeholder="Link title"
-                            className="w-full px-4 py-3 bg-muted border border-green-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
-                            id="link-title"
-                          />
-                        </div>
-                        <div className="relative">
-                          <input
-                            type="url"
-                            placeholder="Website URL"
-                            className="w-full px-4 py-3 bg-muted border border-green-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
-                            id="link-url"
-                          />
-                        </div>
-                        <div className="relative">
-                          <textarea
-                            placeholder="Description (optional)"
-                            className="w-full px-4 py-3 bg-muted border border-green-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none transition-all"
-                            rows={3}
-                            id="link-description"
-                          />
-                        </div>
-                        <button
-                          onClick={() => {
-                            const title = (document.getElementById('link-title') as HTMLInputElement)?.value;
-                            const url = (document.getElementById('link-url') as HTMLInputElement)?.value;
-                            const description = (document.getElementById('link-description') as HTMLTextAreaElement)?.value;
-                            if (title && url) {
-                              addSource('weblink', { title, url, description });
-                              (document.getElementById('link-title') as HTMLInputElement).value = '';
-                              (document.getElementById('link-url') as HTMLInputElement).value = '';
-                              (document.getElementById('link-description') as HTMLTextAreaElement).value = '';
-                            }
-                          }}
-                          className="w-full py-3 px-4 bg-green-600 hover:bg-green-700 text-white rounded-xl text-sm font-semibold transition-all duration-200 shadow-lg hover:shadow-xl"
-                        >
-                          Add Link
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {activeSourceType === 'image' && (
-                    <div className="space-y-4">
-                      <div className="flex items-center space-x-2">
-                        <Upload className="h-5 w-5 text-purple-500" />
-                        <span className="text-sm font-medium">Add Image</span>
-                      </div>
-                      <label className="w-full cursor-pointer block">
-                        <div className="border-2 border-dashed border-purple-300 hover:border-purple-400 bg-purple-50/10 hover:bg-purple-50/20 rounded-xl p-8 transition-all duration-300">
-                          <div className="flex flex-col items-center space-y-4">
-                            <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-purple-500 shadow-lg">
-                              <Upload className="h-8 w-8 text-white" />
-                            </div>
-                            <div className="text-center">
-                              <p className="text-sm font-semibold text-purple-600">Drop your image here</p>
-                              <p className="text-xs text-muted-foreground mt-1">JPG, PNG, GIF files supported</p>
-                            </div>
-                          </div>
-                        </div>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              const reader = new FileReader();
-                              reader.onload = (event) => {
-                                addSource('image', {
-                                  title: file.name,
-                                  url: event.target?.result as string,
-                                  description: `${file.size} bytes`
-                                });
-                              };
-                              reader.readAsDataURL(file);
-                            }
-                          }}
-                          className="hidden"
-                        />
-                      </label>
-                    </div>
-                  )}
-
-                  {activeSourceType === 'paste' && (
-                    <div className="space-y-4">
-                      <div className="flex items-center space-x-2">
-                        <Clipboard className="h-5 w-5 text-orange-500" />
-                        <span className="text-sm font-medium">Paste Your Material</span>
-                      </div>
-                      <div className="space-y-3">
-                        <div className="relative">
-                          <input
-                            type="text"
-                            placeholder="Material title"
-                            className="w-full px-4 py-3 bg-muted border border-orange-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all"
-                            id="paste-title"
-                          />
-                        </div>
-                        <div className="relative">
-                          <textarea
-                            placeholder="Paste your text content here... (notes, articles, code, etc.)"
-                            className="w-full px-4 py-3 bg-muted border border-orange-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent resize-none transition-all"
-                            rows={8}
-                            id="paste-content"
-                          />
-                        </div>
-                        <div className="relative">
-                          <textarea
-                            placeholder="Description (optional)"
-                            className="w-full px-4 py-3 bg-muted border border-orange-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent resize-none transition-all"
-                            rows={2}
-                            id="paste-description"
-                          />
-                        </div>
-                        <button
-                          onClick={() => {
-                            const title = (document.getElementById('paste-title') as HTMLInputElement)?.value;
-                            const content = (document.getElementById('paste-content') as HTMLTextAreaElement)?.value;
-                            const description = (document.getElementById('paste-description') as HTMLTextAreaElement)?.value;
-                            if (title && content) {
-                              addSource('paste', { 
-                                title, 
-                                content, 
-                                description: description || `${content.length} characters`
-                              });
-                              (document.getElementById('paste-title') as HTMLInputElement).value = '';
-                              (document.getElementById('paste-content') as HTMLTextAreaElement).value = '';
-                              (document.getElementById('paste-description') as HTMLTextAreaElement).value = '';
-                            }
-                          }}
-                          className="w-full py-3 px-4 bg-orange-600 hover:bg-orange-700 text-white rounded-xl text-sm font-semibold transition-all duration-200 shadow-lg hover:shadow-xl"
-                        >
-                          Add Material
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Sources List */}
-                <div className="flex-1 p-6 overflow-y-auto">
-                  <div className="space-y-3">
-                    {sources.length === 0 ? (
-                      <div className="text-center py-8">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-muted mx-auto mb-3">
-                          <Plus className="h-6 w-6 text-muted-foreground" />
-                        </div>
-                        <p className="text-sm text-muted-foreground">No sources added yet</p>
-                        <p className="text-xs text-muted-foreground">Add documents, videos, or links above</p>
-                      </div>
-                    ) : (
-                      sources.map((source) => (
-                        <div key={source.id} className="p-4 bg-gradient-to-r from-muted/30 to-muted/50 border border-border rounded-xl hover:shadow-md transition-all duration-200">
-                          <div className="flex items-start justify-between">
-                            <div className="flex items-start space-x-3 flex-1">
-                              <div className={`flex h-10 w-10 items-center justify-center rounded-xl shadow-sm ${
-                                source.type === 'youtube' ? 'bg-red-500' :
-                                source.type === 'weblink' ? 'bg-green-500' :
-                                source.type === 'image' ? 'bg-purple-500' :
-                                source.type === 'document' ? 'bg-blue-500' :
-                                'bg-orange-500'
-                              }`}>
-                                {source.type === 'youtube' && <Video className="h-5 w-5 text-white" />}
-                                {source.type === 'weblink' && <Globe className="h-5 w-5 text-white" />}
-                                {source.type === 'image' && <Upload className="h-5 w-5 text-white" />}
-                                {source.type === 'document' && <File className="h-5 w-5 text-white" />}
-                                {source.type === 'paste' && <Clipboard className="h-5 w-5 text-white" />}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <h4 className="text-sm font-semibold truncate text-foreground">{source.title}</h4>
-                                {source.description && (
-                                  <p className="text-xs text-muted-foreground mt-1">{source.description}</p>
-                                )}
-                                {source.url && source.type !== 'image' && (
-                                  <a
-                                    href={source.url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-xs text-blue-500 hover:text-blue-400 truncate block mt-1 underline"
-                                  >
-                                    {source.url}
-                                  </a>
-                                )}
-                                {source.type === 'image' && source.url && (
-                                  <img
-                                    src={source.url}
-                                    alt={source.title}
-                                    className="mt-2 max-w-full h-20 object-cover rounded-lg border border-border"
-                                  />
-                                )}
-                                {source.type === 'paste' && source.content && (
-                                  <div className="mt-2 p-2 bg-muted/50 rounded-lg border border-border">
-                                    <p className="text-xs text-muted-foreground line-clamp-3">
-                                      {source.content.substring(0, 100)}...
-                                    </p>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                            <button
-                              onClick={() => removeSource(source.id)}
-                              className="ml-2 p-2 hover:bg-red-100 hover:text-red-600 rounded-lg text-muted-foreground hover:text-foreground transition-all duration-200"
-                              title="Remove source"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-
               </div>
               
-              {/* Resize Handle */}
-              <div
-                className="w-2 bg-muted hover:bg-primary/50 cursor-col-resize transition-colors border-r border-border"
-                onMouseDown={(e) => handleMouseDown('sources', e)}
-              />
-            </>
-          )}
-
-          {/* Main Content Area */}
-          <div className="flex-1 flex flex-col bg-background/50">
-            {/* Toolbar */}
-            <div className="border-b border-border bg-muted/20 p-4">
-              <Toolbar
-                currentTool={currentTool}
-                onToolChange={setCurrentTool}
-                strokeWidth={strokeWidth}
-                onStrokeWidthChange={setStrokeWidth}
-                strokeColor={strokeColor}
-                onStrokeColorChange={setStrokeColor}
-                onOpenCalculator={handleOpenCalculator}
-              />
-            </div>
-
-            {/* Canvas, Chat, and Study Tools */}
-            <div className="flex-1 flex">
-              {/* Canvas */}
-              <div className="flex-1 relative">
-                {isMolecularMode ? (
-                  <MoldrawEmbed />
-                ) : (
-                  <Canvas
-                    currentTool={currentTool}
-                    strokeWidth={strokeWidth}
-                    strokeColor={strokeColor}
-                    onOpenCalculator={handleOpenCalculator}
-                    onOpenMolView={handleOpenMolView}
-                    onOpenPeriodicTable={handleOpenPeriodicTable}
-                  />
-                )}
-                
-                {/* Chat Start Button - Floating */}
-                {!showChatPanel && (
-                  <div className="absolute top-4 right-4 z-10">
-                    <button
-                      onClick={() => {
-                        console.log('Starting chat panel...');
-                        setShowChatPanel(true);
-                      }}
-                      className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105"
-                    >
-                      <MessageSquare className="h-5 w-5" />
-                      <span className="font-medium">Start Chat</span>
-                    </button>
-                  </div>
-                )}
-                
-              </div>
-
-
-              {/* AI Chat */}
-              {showChatPanel && (
-                <>
-                  {/* Resize Handle */}
-                  <div
-                    className="w-3 bg-muted hover:bg-primary/30 cursor-col-resize transition-colors border-r border-border flex items-center justify-center"
-                    onMouseDown={(e) => handleMouseDown('chat', e)}
-                    title="Drag to resize chat panel"
-                  >
-                    <div className="w-1 h-12 bg-border hover:bg-primary rounded-full"></div>
-                  </div>
-                  
-                  <div 
-                    className="border-r-2 border-border bg-card flex flex-col shadow-lg"
-                    style={{ width: chatWidth }}
-                  >
-                    <div className="px-4 py-3 border-b border-border bg-muted/50 flex items-center justify-between">
-                      <div className="flex items-center space-x-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary">
-                          <MessageSquare className="h-4 w-4 text-primary-foreground" />
-                        </div>
-                        <div>
-                          <h3 className="text-sm font-semibold">AI Chat</h3>
-                          <p className="text-xs text-muted-foreground">Ask questions about chemistry</p>
+              {/* Add Source Section */}
+              <div className="p-6 border-b border-border">
+                {activeSourceType === 'document' && (
+                  <div className="space-y-4">
+                    <div className="flex items-center space-x-2">
+                      <File className="h-5 w-5 text-blue-500" />
+                      <span className="text-sm font-medium">Upload Document</span>
+                    </div>
+                    <label className="w-full cursor-pointer block">
+                      <div className="border-2 border-dashed border-blue-300 hover:border-blue-400 bg-blue-50/10 hover:bg-blue-50/20 rounded-xl p-8 transition-all duration-300">
+                        <div className="flex flex-col items-center space-y-4">
+                          <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-blue-500 shadow-lg">
+                            <File className="h-8 w-8 text-white" />
+                          </div>
+                          <div className="text-center">
+                            <p className="text-sm font-semibold text-blue-600">Drop your document here</p>
+                            <p className="text-xs text-muted-foreground mt-1">PDF, TXT, MD files supported</p>
+                          </div>
                         </div>
                       </div>
-                      <div className="flex items-center space-x-2">
-                        <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
-                          {Math.round(chatWidth)}px
-                        </span>
-                        <button
-                          onClick={() => setShowChatPanel(false)}
-                          className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-8 w-8"
+                      <input
+                        type="file"
+                        accept=".pdf,.txt,.md"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            if (file.type === 'text/plain') {
+                              const text = await file.text();
+                              addSource('document', {
+                                title: file.name,
+                                content: text,
+                                description: `${text.length} characters`
+                              });
+                            } else {
+                              alert('PDF support coming soon! Try uploading a .txt file.');
+                            }
+                          }
+                        }}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                )}
+
+                {activeSourceType === 'youtube' && (
+                  <div className="space-y-4">
+                    <div className="flex items-center space-x-2">
+                      <Video className="h-5 w-5 text-red-500" />
+                      <span className="text-sm font-medium">Add YouTube Video</span>
+                    </div>
+                    <div className="space-y-3">
+                      <div className="relative">
+                        <input
+                          type="text"
+                          placeholder="Video title"
+                          className="w-full px-4 py-3 bg-muted border border-red-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all"
+                          id="youtube-title"
+                        />
+                      </div>
+                      <div className="relative">
+                        <input
+                          type="url"
+                          placeholder="YouTube URL (e.g., https://youtube.com/watch?v=...)"
+                          className="w-full px-4 py-3 bg-muted border border-red-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all"
+                          id="youtube-url"
+                        />
+                      </div>
+                      <button
+                        onClick={() => {
+                          const title = (document.getElementById('youtube-title') as HTMLInputElement)?.value;
+                          const url = (document.getElementById('youtube-url') as HTMLInputElement)?.value;
+                          if (title && url) {
+                            addSource('youtube', { title, url, description: 'YouTube video' });
+                            (document.getElementById('youtube-title') as HTMLInputElement).value = '';
+                            (document.getElementById('youtube-url') as HTMLInputElement).value = '';
+                          }
+                        }}
+                        className="w-full py-3 px-4 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-semibold transition-all duration-200 shadow-lg hover:shadow-xl"
+                      >
+                        Add Video
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {activeSourceType === 'weblink' && (
+                  <div className="space-y-4">
+                    <div className="flex items-center space-x-2">
+                      <Globe className="h-5 w-5 text-green-500" />
+                      <span className="text-sm font-medium">Add Web Link</span>
+                    </div>
+                    <div className="space-y-3">
+                      <div className="relative">
+                        <input
+                          type="text"
+                          placeholder="Link title"
+                          className="w-full px-4 py-3 bg-muted border border-green-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
+                          id="link-title"
+                        />
+                      </div>
+                      <div className="relative">
+                        <input
+                          type="url"
+                          placeholder="Website URL"
+                          className="w-full px-4 py-3 bg-muted border border-green-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
+                          id="link-url"
+                        />
+                      </div>
+                      <div className="relative">
+                        <textarea
+                          placeholder="Description (optional)"
+                          className="w-full px-4 py-3 bg-muted border border-green-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none transition-all"
+                          rows={3}
+                          id="link-description"
+                        />
+                      </div>
+                      <button
+                        onClick={() => {
+                          const title = (document.getElementById('link-title') as HTMLInputElement)?.value;
+                          const url = (document.getElementById('link-url') as HTMLInputElement)?.value;
+                          const description = (document.getElementById('link-description') as HTMLTextAreaElement)?.value;
+                          if (title && url) {
+                            addSource('weblink', { title, url, description });
+                            (document.getElementById('link-title') as HTMLInputElement).value = '';
+                            (document.getElementById('link-url') as HTMLInputElement).value = '';
+                            (document.getElementById('link-description') as HTMLTextAreaElement).value = '';
+                          }
+                        }}
+                        className="w-full py-3 px-4 bg-green-600 hover:bg-green-700 text-white rounded-xl text-sm font-semibold transition-all duration-200 shadow-lg hover:shadow-xl"
+                      >
+                        Add Link
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {activeSourceType === 'image' && (
+                  <div className="space-y-4">
+                    <div className="flex items-center space-x-2">
+                      <Upload className="h-5 w-5 text-purple-500" />
+                      <span className="text-sm font-medium">Add Image</span>
+                    </div>
+                    <label className="w-full cursor-pointer block">
+                      <div className="border-2 border-dashed border-purple-300 hover:border-purple-400 bg-purple-50/10 hover:bg-purple-50/20 rounded-xl p-8 transition-all duration-300">
+                        <div className="flex flex-col items-center space-y-4">
+                          <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-purple-500 shadow-lg">
+                            <Upload className="h-8 w-8 text-white" />
+                          </div>
+                          <div className="text-center">
+                            <p className="text-sm font-semibold text-purple-600">Drop your image here</p>
+                            <p className="text-xs text-muted-foreground mt-1">JPG, PNG, GIF files supported</p>
+                          </div>
+                        </div>
+                      </div>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onload = (event) => {
+                              addSource('image', {
+                                title: file.name,
+                                url: event.target?.result as string,
+                                description: `${file.size} bytes`
+                              });
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                )}
+
+                {activeSourceType === 'paste' && (
+                  <div className="space-y-4">
+                    <div className="flex items-center space-x-2">
+                      <Clipboard className="h-5 w-5 text-orange-500" />
+                      <span className="text-sm font-medium">Paste Your Material</span>
+                    </div>
+                    <div className="space-y-3">
+                      <div className="relative">
+                        <input
+                          type="text"
+                          placeholder="Material title"
+                          className="w-full px-4 py-3 bg-muted border border-orange-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all"
+                          id="paste-title"
+                        />
+                      </div>
+                      <div className="relative">
+                        <textarea
+                          placeholder="Paste your text content here... (notes, articles, code, etc.)"
+                          className="w-full px-4 py-3 bg-muted border border-orange-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent resize-none transition-all"
+                          rows={8}
+                          id="paste-content"
+                        />
+                      </div>
+                      <div className="relative">
+                        <textarea
+                          placeholder="Description (optional)"
+                          className="w-full px-4 py-3 bg-muted border border-orange-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent resize-none transition-all"
+                          rows={2}
+                          id="paste-description"
+                        />
+                      </div>
+                      <button
+                        onClick={() => {
+                          const title = (document.getElementById('paste-title') as HTMLInputElement)?.value;
+                          const content = (document.getElementById('paste-content') as HTMLTextAreaElement)?.value;
+                          const description = (document.getElementById('paste-description') as HTMLTextAreaElement)?.value;
+                          if (title && content) {
+                            addSource('paste', { 
+                              title, 
+                              content, 
+                              description: description || `${content.length} characters`
+                            });
+                            (document.getElementById('paste-title') as HTMLInputElement).value = '';
+                            (document.getElementById('paste-content') as HTMLTextAreaElement).value = '';
+                            (document.getElementById('paste-description') as HTMLTextAreaElement).value = '';
+                          }
+                        }}
+                        className="w-full py-3 px-4 bg-orange-600 hover:bg-orange-700 text-white rounded-xl text-sm font-semibold transition-all duration-200 shadow-lg hover:shadow-xl"
+                      >
+                        Add Material
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Sources List */}
+              <div className="flex-1 p-6 overflow-y-auto">
+                <div className="space-y-3">
+                  {sources.length === 0 ? (
+                    <div className="text-center py-8">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-muted mx-auto mb-3">
+                        <Plus className="h-6 w-6 text-muted-foreground" />
+                      </div>
+                      <p className="text-sm text-muted-foreground">No sources added yet</p>
+                      <p className="text-xs text-muted-foreground">Add documents, videos, or links above</p>
+                    </div>
+                  ) : (
+                    sources.map((source) => (
+                      <div key={source.id} className="p-4 bg-gradient-to-r from-muted/30 to-muted/50 border border-border rounded-xl hover:shadow-md transition-all duration-200">
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-start space-x-3 flex-1">
+                            <div className={`flex h-10 w-10 items-center justify-center rounded-xl shadow-sm ${
+                              source.type === 'youtube' ? 'bg-red-500' :
+                              source.type === 'weblink' ? 'bg-green-500' :
+                              source.type === 'image' ? 'bg-purple-500' :
+                              source.type === 'document' ? 'bg-blue-500' :
+                              'bg-orange-500'
+                            }`}>
+                              {source.type === 'youtube' && <Video className="h-5 w-5 text-white" />}
+                              {source.type === 'weblink' && <Globe className="h-5 w-5 text-white" />}
+                              {source.type === 'image' && <Upload className="h-5 w-5 text-white" />}
+                              {source.type === 'document' && <File className="h-5 w-5 text-white" />}
+                              {source.type === 'paste' && <Clipboard className="h-5 w-5 text-white" />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <h4 className="text-sm font-semibold truncate text-foreground">{source.title}</h4>
+                              {source.description && (
+                                <p className="text-xs text-muted-foreground mt-1">{source.description}</p>
+                              )}
+                              {source.url && source.type !== 'image' && (
+                                <a
+                                  href={source.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs text-blue-500 hover:text-blue-400 truncate block mt-1 underline"
+                                >
+                                  {source.url}
+                                </a>
+                              )}
+                              {source.type === 'image' && source.url && (
+                                <img
+                                  src={source.url}
+                                  alt={source.title}
+                                  className="mt-2 max-w-full h-20 object-cover rounded-lg border border-border"
+                                />
+                              )}
+                              {source.type === 'paste' && source.content && (
+                                <div className="mt-2 p-2 bg-muted/50 rounded-lg border border-border">
+                                  <p className="text-xs text-muted-foreground line-clamp-3">
+                                    {source.content.substring(0, 100)}...
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => removeSource(source.id)}
+                            className="ml-2 p-2 hover:bg-red-100 hover:text-red-600 rounded-lg text-muted-foreground hover:text-foreground transition-all duration-200"
+                            title="Remove source"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+            </div>
+            
+            {/* Resize Handle */}
+            <div
+              className="w-2 bg-muted hover:bg-primary/50 cursor-col-resize transition-colors border-r border-border"
+              onMouseDown={(e) => handleMouseDown('sources', e)}
+            />
+          </>
+        )}
+
+        {/* Main Content Area */}
+        <div className="flex-1 flex flex-col bg-background/50">
+          {/* Toolbar */}
+          <div className="border-b border-border bg-muted/20 p-4">
+            <Toolbar
+              currentTool={currentTool}
+              onToolChange={setCurrentTool}
+              strokeWidth={strokeWidth}
+              onStrokeWidthChange={setStrokeWidth}
+              strokeColor={strokeColor}
+              onStrokeColorChange={setStrokeColor}
+              onOpenCalculator={handleOpenCalculator}
+            />
+          </div>
+
+          {/* Canvas, Chat, and Study Tools */}
+          <div className="flex-1 flex">
+            {/* Canvas */}
+            <div className="flex-1 relative">
+              {isMolecularMode ? (
+                <MoldrawEmbed />
+              ) : (
+                <Canvas
+                  currentTool={currentTool}
+                  strokeWidth={strokeWidth}
+                  strokeColor={strokeColor}
+                  onOpenCalculator={handleOpenCalculator}
+                  onOpenMolView={handleOpenMolView}
+                  onOpenPeriodicTable={handleOpenPeriodicTable}
+                />
+              )}
+              
+              {/* Chat Start Button - Floating */}
+              {!showChatPanel && (
+                <div className="absolute top-4 right-4 z-10">
+                  <button
+                    onClick={() => {
+                      console.log('Starting chat panel...');
+                      setShowChatPanel(true);
+                    }}
+                    className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105"
+                  >
+                    <MessageSquare className="h-5 w-5" />
+                    <span className="font-medium">Start Chat</span>
+                  </button>
+                </div>
+              )}
+              
+            </div>
+
+
+            {/* AI Chat */}
+            {showChatPanel && (
+              <>
+                {/* Resize Handle */}
+                <div
+                  className="w-3 bg-muted hover:bg-primary/30 cursor-col-resize transition-colors border-r border-border flex items-center justify-center"
+                  onMouseDown={(e) => handleMouseDown('chat', e)}
+                  title="Drag to resize chat panel"
+                >
+                  <div className="w-1 h-12 bg-border hover:bg-primary rounded-full"></div>
+                </div>
+                
+                <div 
+                  className="border-r-2 border-border bg-card flex flex-col shadow-lg"
+                  style={{ width: chatWidth }}
+                >
+                  <div className="px-4 py-3 border-b border-border bg-muted/50 flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary">
+                        <MessageSquare className="h-4 w-4 text-primary-foreground" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-semibold">AI Chat</h3>
+                        <p className="text-xs text-muted-foreground">Ask questions about chemistry</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
+                        {Math.round(chatWidth)}px
+                      </span>
+                      <button
+                        onClick={() => setShowChatPanel(false)}
+                        className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-8 w-8"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex-1">
+                    <AIChat
+                      onSendMessage={handleSendMessage}
+                      interactions={interactions}
+                      isLoading={isLoading}
+                      documentName={sources.length > 0 ? `${sources.length} sources` : 'No sources'}
+                      onOpenDocument={() => setDocumentViewerOpen(true)}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Study Tools Panel */}
+            {showStudyToolsPanel && (
+              <>
+                <div 
+                  className="border-l-2 border-border bg-card flex flex-col shadow-lg"
+                  style={{ width: studyToolsWidth }}
+                >
+                  {/* Study Tools Header */}
+                  <div className="px-6 py-4 border-b border-border bg-muted/50">
+                    <div className="flex items-center space-x-3">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary">
+                        <Sparkles className="h-4 w-4 text-primary-foreground" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-semibold">Study Tools</h3>
+                        <p className="text-xs text-muted-foreground">Generate content</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Study Tools Grid */}
+                  <div className="flex-1 p-6">
+                    <div className="grid grid-cols-2 gap-3">
+                      {[
+                        { name: 'Audio Overview', icon: '🎵', toolType: 'audio' },
+                        { name: 'Video Overview', icon: '▶️', toolType: 'video' },
+                        { name: 'Mind Map', icon: '🧠', toolType: 'mindmap' },
+                        { name: 'Reports', icon: '📊', toolType: 'reports' },
+                        { name: 'Flashcards', icon: '📚', toolType: 'flashcards' },
+                        { name: 'Quiz', icon: '❓', toolType: 'quiz' },
+                      ].map((tool) => (
+                        <button 
+                          key={tool.name}
+                          onClick={() => setShowStudyTools(true)}
+                          className="flex flex-col items-center space-y-2 p-4 bg-secondary hover:bg-primary/10 border border-border rounded-lg transition-all duration-200 hover:shadow-sm hover:border-primary/50"
                         >
-                          ✕
+                          <div className={`flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary`}>
+                            <span className="text-lg">{tool.icon}</span>
+                          </div>
+                          <p className="text-xs font-medium text-center text-foreground">{tool.name}</p>
+                        </button>
+                      ))}
+                    </div>
+                    
+                    {/* Quick Access Tools */}
+                    <div className="mt-6 pt-4 border-t border-border">
+                      <h4 className="text-sm font-medium text-muted-foreground mb-3">Quick Access</h4>
+                      
+                      {/* Primary Tools */}
+                      <div className="grid grid-cols-2 gap-3 mb-4">
+                        <button 
+                          onClick={() => {
+                            setShowChatPanel(true);
+                          }}
+                          className="flex flex-col items-center space-y-2 p-4 bg-secondary hover:bg-primary/10 border border-border rounded-lg transition-all duration-200 hover:shadow-sm hover:border-primary/50"
+                        >
+                          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                            <MessageSquare className="h-5 w-5" />
+                          </div>
+                          <p className="text-xs font-medium text-center">Chat</p>
+                        </button>
+                        
+                        <button 
+                          onClick={() => {
+                            setShowStudyTools(true);
+                            setTimeout(() => {
+                              const testButton = document.querySelector('[data-tool="tests"]');
+                              if (testButton) (testButton as HTMLElement).click();
+                            }, 100);
+                          }}
+                          className="flex flex-col items-center space-y-2 p-4 bg-secondary hover:bg-primary/10 border border-border rounded-lg transition-all duration-200 hover:shadow-sm hover:border-primary/50"
+                        >
+                          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                            <BookOpen className="h-5 w-5" />
+                          </div>
+                          <p className="text-xs font-medium text-center">AI Tests</p>
+                        </button>
+                      </div>
+                      
+                      {/* Secondary Tools */}
+                      <h4 className="text-sm font-medium text-muted-foreground mb-3">Tools</h4>
+                      <div className="grid grid-cols-2 gap-3">
+                        <button 
+                          onClick={() => {
+                            setShowStudyTools(true);
+                            setTimeout(() => {
+                              const docButton = document.querySelector('[data-tool="documents"]');
+                              if (docButton) (docButton as HTMLElement).click();
+                            }, 100);
+                          }}
+                          className="flex flex-col items-center space-y-2 p-3 bg-secondary hover:bg-primary/10 border border-border rounded-lg transition-all duration-200 hover:shadow-sm hover:border-primary/50"
+                        >
+                          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                            <FileText className="h-4 w-4" />
+                          </div>
+                          <p className="text-xs font-medium text-center">Docs</p>
+                        </button>
+                        
+                        <button 
+                          onClick={() => {
+                            setShowStudyTools(true);
+                            setTimeout(() => {
+                              const notesButton = document.querySelector('[data-tool="notes"]');
+                              if (notesButton) (notesButton as HTMLElement).click();
+                            }, 100);
+                          }}
+                          className="flex flex-col items-center space-y-2 p-3 bg-secondary hover:bg-primary/10 border border-border rounded-lg transition-all duration-200 hover:shadow-sm hover:border-primary/50"
+                        >
+                          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                            <Edit3 className="h-4 w-4" />
+                          </div>
+                          <p className="text-xs font-medium text-center">Notes</p>
+                        </button>
+                        
+                        <button 
+                          onClick={() => {
+                            setShowStudyTools(true);
+                            setTimeout(() => {
+                              const designerButton = document.querySelector('[data-tool="designer"]');
+                              if (designerButton) (designerButton as HTMLElement).click();
+                            }, 100);
+                          }}
+                          className="flex flex-col items-center space-y-2 p-3 bg-secondary hover:bg-primary/10 border border-border rounded-lg transition-all duration-200 hover:shadow-sm hover:border-primary/50"
+                        >
+                          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                            <Palette className="h-4 w-4" />
+                          </div>
+                          <p className="text-xs font-medium text-center">Design</p>
                         </button>
                       </div>
                     </div>
-                    <div className="flex-1">
-                      <AIChat
-                        onSendMessage={handleSendMessage}
-                        interactions={interactions}
-                        isLoading={isLoading}
-                        documentName={sources.length > 0 ? `${sources.length} sources` : 'No sources'}
-                        onOpenDocument={() => setDocumentViewerOpen(true)}
-                      />
-                    </div>
                   </div>
-                </>
-              )}
-
-              {/* Study Tools Panel */}
-              {showStudyToolsPanel && (
-                <>
-                  <div 
-                    className="border-l-2 border-border bg-card flex flex-col shadow-lg"
-                    style={{ width: studyToolsWidth }}
-                  >
-                    {/* Study Tools Header */}
-                    <div className="px-6 py-4 border-b border-border bg-muted/50">
-                      <div className="flex items-center space-x-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary">
-                          <Sparkles className="h-4 w-4 text-primary-foreground" />
-                        </div>
-                        <div>
-                          <h3 className="text-sm font-semibold">Study Tools</h3>
-                          <p className="text-xs text-muted-foreground">Generate content</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Study Tools Grid */}
-                    <div className="flex-1 p-6">
-                      <div className="grid grid-cols-2 gap-3">
-                        {[
-                          { name: 'Audio Overview', icon: '🎵', toolType: 'audio' },
-                          { name: 'Video Overview', icon: '▶️', toolType: 'video' },
-                          { name: 'Mind Map', icon: '🧠', toolType: 'mindmap' },
-                          { name: 'Reports', icon: '📊', toolType: 'reports' },
-                          { name: 'Flashcards', icon: '📚', toolType: 'flashcards' },
-                          { name: 'Quiz', icon: '❓', toolType: 'quiz' },
-                        ].map((tool) => (
-                          <button 
-                            key={tool.name}
-                            onClick={() => setShowStudyTools(true)}
-                            className="flex flex-col items-center space-y-2 p-4 bg-secondary hover:bg-primary/10 border border-border rounded-lg transition-all duration-200 hover:shadow-sm hover:border-primary/50"
-                          >
-                            <div className={`flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary`}>
-                              <span className="text-lg">{tool.icon}</span>
-                            </div>
-                            <p className="text-xs font-medium text-center text-foreground">{tool.name}</p>
-                          </button>
-                        ))}
-                      </div>
-                      
-                      {/* Quick Access Tools */}
-                      <div className="mt-6 pt-4 border-t border-border">
-                        <h4 className="text-sm font-medium text-muted-foreground mb-3">Quick Access</h4>
-                        
-                        {/* Primary Tools */}
-                        <div className="grid grid-cols-2 gap-3 mb-4">
-                          <button 
-                            onClick={() => {
-                              setShowChatPanel(true);
-                            }}
-                            className="flex flex-col items-center space-y-2 p-4 bg-secondary hover:bg-primary/10 border border-border rounded-lg transition-all duration-200 hover:shadow-sm hover:border-primary/50"
-                          >
-                            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                              <MessageSquare className="h-5 w-5" />
-                            </div>
-                            <p className="text-xs font-medium text-center">Chat</p>
-                          </button>
-                          
-                          <button 
-                            onClick={() => {
-                              setShowStudyTools(true);
-                              setTimeout(() => {
-                                const testButton = document.querySelector('[data-tool="tests"]');
-                                if (testButton) (testButton as HTMLElement).click();
-                              }, 100);
-                            }}
-                            className="flex flex-col items-center space-y-2 p-4 bg-secondary hover:bg-primary/10 border border-border rounded-lg transition-all duration-200 hover:shadow-sm hover:border-primary/50"
-                          >
-                            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                              <BookOpen className="h-5 w-5" />
-                            </div>
-                            <p className="text-xs font-medium text-center">AI Tests</p>
-                          </button>
-                        </div>
-                        
-                        {/* Secondary Tools */}
-                        <h4 className="text-sm font-medium text-muted-foreground mb-3">Tools</h4>
-                        <div className="grid grid-cols-2 gap-3">
-                          <button 
-                            onClick={() => {
-                              setShowStudyTools(true);
-                              setTimeout(() => {
-                                const docButton = document.querySelector('[data-tool="documents"]');
-                                if (docButton) (docButton as HTMLElement).click();
-                              }, 100);
-                            }}
-                            className="flex flex-col items-center space-y-2 p-3 bg-secondary hover:bg-primary/10 border border-border rounded-lg transition-all duration-200 hover:shadow-sm hover:border-primary/50"
-                          >
-                            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                              <FileText className="h-4 w-4" />
-                            </div>
-                            <p className="text-xs font-medium text-center">Docs</p>
-                          </button>
-                          
-                          <button 
-                            onClick={() => {
-                              setShowStudyTools(true);
-                              setTimeout(() => {
-                                const notesButton = document.querySelector('[data-tool="notes"]');
-                                if (notesButton) (notesButton as HTMLElement).click();
-                              }, 100);
-                            }}
-                            className="flex flex-col items-center space-y-2 p-3 bg-secondary hover:bg-primary/10 border border-border rounded-lg transition-all duration-200 hover:shadow-sm hover:border-primary/50"
-                          >
-                            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                              <Edit3 className="h-4 w-4" />
-                            </div>
-                            <p className="text-xs font-medium text-center">Notes</p>
-                          </button>
-                          
-                          <button 
-                            onClick={() => {
-                              setShowStudyTools(true);
-                              setTimeout(() => {
-                                const designerButton = document.querySelector('[data-tool="designer"]');
-                                if (designerButton) (designerButton as HTMLElement).click();
-                              }, 100);
-                            }}
-                            className="flex flex-col items-center space-y-2 p-3 bg-secondary hover:bg-primary/10 border border-border rounded-lg transition-all duration-200 hover:shadow-sm hover:border-primary/50"
-                          >
-                            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                              <Palette className="h-4 w-4" />
-                            </div>
-                            <p className="text-xs font-medium text-center">Design</p>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* Resize Handle */}
-                  <div
-                    className="w-2 bg-muted hover:bg-primary/50 cursor-col-resize transition-colors border-l border-border"
-                    onMouseDown={(e) => handleMouseDown('studyTools', e)}
-                  />
-                </>
-              )}
-            </div>
+                </div>
+                
+                {/* Resize Handle */}
+                <div
+                  className="w-2 bg-muted hover:bg-primary/50 cursor-col-resize transition-colors border-l border-border"
+                  onMouseDown={(e) => handleMouseDown('studyTools', e)}
+                />
+              </>
+            )}
           </div>
         </div>
+      </div>
       )}
 
       {/* Settings Modal */}
