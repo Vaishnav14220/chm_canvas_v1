@@ -3,9 +3,10 @@ import { ZoomIn, ZoomOut, Grid3x3, RotateCcw, CheckCircle, AlertCircle, Loader2,
 import { analyzeCanvasWithLLM, getStoredAPIKey, type Correction, type CanvasAnalysisResult } from '../services/canvasAnalyzer';
 import { convertCanvasToChemistry } from '../services/chemistryConverter';
 import MoleculeSearch from './MoleculeSearch';
-import { type MoleculeData } from '../services/pubchemService';
+import { type MoleculeData, parseSDF, drawSDF2DStructure, type ParsedSDF } from '../services/pubchemService';
 import ChemistryToolbar from './ChemistryToolbar';
 import ChemistryStructureViewer from './ChemistryStructureViewer';
+import ChemistryWidgetPanel from './ChemistryWidgetPanel';
 
 interface CanvasProps {
   currentTool: string;
@@ -45,6 +46,9 @@ export default function Canvas({
   const [isConverting, setIsConverting] = useState(false);
   const [canvasBackground, setCanvasBackground] = useState<'dark' | 'white'>('dark');
   const [showMoleculeSearch, setShowMoleculeSearch] = useState(false);
+  const [forceRedraw, setForceRedraw] = useState(0); // New state for forcing redraw
+  const [showChemistryWidgetPanel, setShowChemistryWidgetPanel] = useState(false);
+  const [currentSmiles, setCurrentSmiles] = useState('CCO'); // Default to ethanol
 
   // Arrow drawing state - single resizable arrow
   const [arrowState, setArrowState] = useState<{
@@ -55,6 +59,12 @@ export default function Canvas({
     isDrawing: boolean;
   } | null>(null);
   const imageDataRef = useRef<ImageData | null>(null);
+
+  // Cache for rendered molecule images
+  const moleculeImageCacheRef = useRef<Map<number, HTMLImageElement>>(new Map());
+
+  // Cache for parsed SDF structures
+  const sdfCacheRef = useRef<Map<number, ParsedSDF>>(new Map());
 
   // Shape tracking for repositioning
   interface Shape {
@@ -85,6 +95,14 @@ export default function Canvas({
   const [isRotatingShape, setIsRotatingShape] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const canvasHistoryRef = useRef<Shape[]>([]);
+
+  // Resizing state - Canva-like
+  const [isResizing, setIsResizing] = useState(false);
+  const [resizeHandle, setResizeHandle] = useState<'tl' | 'tr' | 'bl' | 'br' | 't' | 'b' | 'l' | 'r' | null>(null);
+  const [resizeStartX, setResizeStartX] = useState(0);
+  const [resizeStartY, setResizeStartY] = useState(0);
+  const [resizeStartWidth, setResizeStartWidth] = useState(0);
+  const [resizeStartHeight, setResizeStartHeight] = useState(0);
 
   // Intelligent color picker based on canvas background
   const getOptimalPenColor = () => {
@@ -118,7 +136,7 @@ export default function Canvas({
 
     // Redraw all saved shapes
     redrawAllShapes(ctx);
-  }, [showGrid, canvasBackground, shapes]);
+  }, [showGrid, canvasBackground, shapes, forceRedraw]);
 
   const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
     // Adjust grid color based on canvas background
@@ -140,6 +158,42 @@ export default function Canvas({
       ctx.lineTo(width, y);
         ctx.stroke();
       }
+  };
+
+  // Helper function to detect which resize handle is being clicked
+  const detectResizeHandle = (
+    x: number,
+    y: number,
+    shape: Shape
+  ): 'tl' | 'tr' | 'bl' | 'br' | 't' | 'b' | 'l' | 'r' | null => {
+    const handleSize = 12;
+    const startX = shape.startX;
+    const startY = shape.startY;
+    const endX = shape.endX;
+    const endY = shape.endY;
+
+    // Define handle positions
+    const handles = {
+      tl: { x: startX, y: startY },
+      tr: { x: endX, y: startY },
+      bl: { x: startX, y: endY },
+      br: { x: endX, y: endY },
+      t: { x: (startX + endX) / 2, y: startY },
+      b: { x: (startX + endX) / 2, y: endY },
+      l: { x: startX, y: (startY + endY) / 2 },
+      r: { x: endX, y: (startY + endY) / 2 }
+    };
+
+    // Check which handle is closest to the click
+    for (const [handleName, handlePos] of Object.entries(handles)) {
+      const dist = Math.sqrt(
+        Math.pow(x - handlePos.x, 2) + Math.pow(y - handlePos.y, 2)
+      );
+      if (dist < handleSize) {
+        return handleName as 'tl' | 'tr' | 'bl' | 'br' | 't' | 'b' | 'l' | 'r';
+      }
+    }
+    return null;
   };
 
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -307,6 +361,48 @@ export default function Canvas({
         canvasHistoryRef.current = updatedShapes;
       }
       return;
+    }
+
+    // Handle resizing existing shape
+    if (isResizing && selectedShapeId) {
+      const shape = canvasHistoryRef.current.find(s => s.id === selectedShapeId);
+      if (shape) {
+        const dx = x - resizeStartX;
+        const dy = y - resizeStartY;
+        const newWidth = resizeStartWidth + dx;
+        const newHeight = resizeStartHeight + dy;
+
+        // Ensure new dimensions are positive
+        if (newWidth > 0 && newHeight > 0) {
+          setShapes(canvasHistoryRef.current.map(s => {
+            if (s.id === selectedShapeId) {
+              return {
+                ...s,
+                startX: shape.startX,
+                startY: shape.startY,
+                endX: shape.startX + newWidth,
+                endY: shape.startY + newHeight,
+                size: newWidth // Assuming size is width for simplicity
+              };
+            }
+            return s;
+          }));
+          canvasHistoryRef.current = canvasHistoryRef.current.map(s => {
+            if (s.id === selectedShapeId) {
+              return {
+                ...s,
+                startX: shape.startX,
+                startY: shape.startY,
+                endX: shape.startX + newWidth,
+                endY: shape.startY + newHeight,
+                size: newWidth // Assuming size is width for simplicity
+              };
+            }
+            return s;
+          });
+        }
+        return;
+      }
     }
 
     // Handle shape preview while dragging (arrow, circle, square, triangle, hexagon, plus, minus)
@@ -543,34 +639,153 @@ export default function Canvas({
   };
 
   const drawMolecule = (ctx: CanvasRenderingContext2D, shape: Shape) => {
-    if (!shape.moleculeData || !shape.moleculeData.svgData) {
-      console.warn('Molecule data or SVG data not available for shape:', shape);
+    if (!shape.moleculeData) {
+      console.warn('Molecule data not available for shape:', shape);
       return;
     }
 
-    const svgString = shape.moleculeData.svgData;
-    const parser = new DOMParser();
-    const svgDoc = parser.parseFromString(svgString, 'image/svg+xml');
-    const svgElement = svgDoc.documentElement;
-
-    // Scale SVG to fit the shape's size
-    const scale = shape.size / 200; // Assuming a default size of 200 for the SVG
-    svgElement.setAttribute('width', `${shape.size}`);
-    svgElement.setAttribute('height', `${shape.size}`);
-
-    // Apply rotation
+    const cid = shape.moleculeData.cid;
+    const cache = moleculeImageCacheRef.current;
+    const sdfCache = sdfCacheRef.current;
+    
+    // Calculate position and size
     const centerX = shape.startX + (shape.endX - shape.startX) / 2;
     const centerY = shape.startY + (shape.endY - shape.startY) / 2;
+    const width = Math.abs(shape.endX - shape.startX);
+    const height = Math.abs(shape.endY - shape.startY);
 
-    ctx.save();
-    ctx.translate(centerX, centerY);
-    ctx.rotate((shape.rotation * Math.PI) / 180);
-    ctx.translate(-centerX, -centerY);
+    // Try to render SDF structure first if available
+    if (shape.moleculeData.svgData) {
+      // SDF takes priority for 2D structure rendering
+      try {
+        if (!sdfCache.has(cid) && shape.moleculeData.svgData) {
+          const parsed = parseSDF(shape.moleculeData.svgData);
+          if (parsed) {
+            sdfCache.set(cid, parsed);
+          }
+        }
 
-    // Draw the SVG element
-    ctx.drawImage(svgElement, shape.startX, shape.startY, shape.size, shape.size);
+        const parsedSDF = sdfCache.get(cid);
+        if (parsedSDF) {
+          ctx.save();
+          ctx.translate(centerX, centerY);
+          ctx.rotate((shape.rotation * Math.PI) / 180);
+          drawSDF2DStructure(ctx, parsedSDF, 0, 0, 25);
+          ctx.restore();
+          return;
+        }
+      } catch (error) {
+        console.warn('Error rendering SDF, falling back to SVG/PNG:', error);
+      }
+    }
 
-    ctx.restore();
+    // Check if we have a cached image
+    if (cache.has(cid)) {
+      const img = cache.get(cid);
+      if (img && img.complete) {
+        // Apply rotation and draw
+        ctx.save();
+        ctx.translate(centerX, centerY);
+        ctx.rotate((shape.rotation * Math.PI) / 180);
+        ctx.drawImage(img, -width / 2, -height / 2, width, height);
+        ctx.restore();
+        return;
+      }
+    }
+
+    // If no cached image, try to load from SVG data or use PNG fallback
+    if (shape.moleculeData.svgData) {
+      // Convert SVG to image and cache it
+      const svg = shape.moleculeData.svgData;
+      const blob = new Blob([svg], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
+      
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        // Cache the loaded image
+        cache.set(cid, img);
+        
+        // Apply rotation and draw
+        ctx.save();
+        ctx.translate(centerX, centerY);
+        ctx.rotate((shape.rotation * Math.PI) / 180);
+        ctx.drawImage(img, -width / 2, -height / 2, width, height);
+        ctx.restore();
+        
+        // Trigger redraw to ensure canvas updates
+        setForceRedraw(prev => prev + 1);
+      };
+      img.onerror = () => {
+        console.warn('Failed to load SVG for molecule:', shape.moleculeData.name);
+        // Fallback to PNG
+        loadMoleculePNG(ctx, shape, centerX, centerY, width, height);
+      };
+      img.src = url;
+    } else {
+      // Use PNG as fallback (like 3D molecules)
+      loadMoleculePNG(ctx, shape, centerX, centerY, width, height);
+    }
+  };
+
+  // Helper function to load molecule as PNG (fallback)
+  const loadMoleculePNG = (
+    ctx: CanvasRenderingContext2D,
+    shape: Shape,
+    centerX: number,
+    centerY: number,
+    width: number,
+    height: number
+  ) => {
+    const cid = shape.moleculeData?.cid;
+    if (!cid) return;
+
+    const cache = moleculeImageCacheRef.current;
+    
+    // Check cache first
+    if (cache.has(cid)) {
+      const img = cache.get(cid);
+      if (img && img.complete) {
+        ctx.save();
+        ctx.translate(centerX, centerY);
+        ctx.rotate((shape.rotation * Math.PI) / 180);
+        ctx.drawImage(img, -width / 2, -height / 2, width, height);
+        ctx.restore();
+        return;
+      }
+    }
+
+    // Load PNG from PubChem
+    const pngUrl = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/CID/${cid}/PNG?image_size=400x400`;
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      cache.set(cid, img);
+      ctx.save();
+      ctx.translate(centerX, centerY);
+      ctx.rotate((shape.rotation * Math.PI) / 180);
+      ctx.drawImage(img, -width / 2, -height / 2, width, height);
+      ctx.restore();
+      
+      // Trigger redraw to ensure canvas updates
+      setForceRedraw(prev => prev + 1);
+    };
+    img.onerror = () => {
+      console.warn('Failed to load molecule PNG:', shape.moleculeData?.name);
+      // Draw placeholder
+      ctx.save();
+      ctx.fillStyle = '#3b82f6';
+      ctx.globalAlpha = 0.3;
+      ctx.fillRect(shape.startX, shape.startY, width, height);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '12px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.globalAlpha = 1;
+      ctx.fillText(shape.moleculeData?.formula || 'Molecule', centerX, centerY);
+      ctx.restore();
+    };
+    img.src = pngUrl;
   };
 
   const stopDrawing = () => {
@@ -585,6 +800,14 @@ export default function Canvas({
     if (isDraggingShape) {
       setIsDraggingShape(false);
       setSelectedShapeId(null);
+      return;
+    }
+
+    // Stop resizing shape
+    if (isResizing) {
+      setIsResizing(false);
+      setResizeHandle(null);
+      // Keep selected for next operation
       return;
     }
 
@@ -665,19 +888,61 @@ export default function Canvas({
 
       // Draw selection indicator if shape is selected
       if (selectedShapeId === shape.id) {
+        // Draw selection box
         ctx.strokeStyle = '#0ea5e9';  // Cyan selection color
         ctx.lineWidth = 3;
         ctx.setLineDash([5, 5]);  // Dashed line
         ctx.globalAlpha = 0.8;
         
-        // Draw selection box
         const tolerance = Math.max(distance / 2 + 15, 25);
         ctx.beginPath();
         ctx.arc(centerX, centerY, tolerance, 0, 2 * Math.PI);
         ctx.stroke();
         
         ctx.setLineDash([]);  // Reset to solid
+        
+        // Draw resize handles (corners and edges)
+        const handleSize = 12;
+        const handlePositions = [
+          // Corners
+          { x: shape.startX, y: shape.startY },
+          { x: shape.endX, y: shape.startY },
+          { x: shape.endX, y: shape.endY },
+          { x: shape.startX, y: shape.endY },
+          // Edges
+          { x: (shape.startX + shape.endX) / 2, y: shape.startY },
+          { x: shape.endX, y: (shape.startY + shape.endY) / 2 },
+          { x: (shape.startX + shape.endX) / 2, y: shape.endY },
+          { x: shape.startX, y: (shape.startY + shape.endY) / 2 },
+        ];
+        
+        // Draw each handle
+        handlePositions.forEach((pos, index) => {
+          ctx.fillStyle = '#0ea5e9';  // Cyan handles
+          ctx.fillRect(
+            pos.x - handleSize / 2,
+            pos.y - handleSize / 2,
+            handleSize,
+            handleSize
+          );
+          
+          // White border for contrast
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(
+            pos.x - handleSize / 2,
+            pos.y - handleSize / 2,
+            handleSize,
+            handleSize
+          );
+        });
+        
         ctx.globalAlpha = 1;
+        
+        // Draw label
+        ctx.fillStyle = '#0ea5e9';
+        ctx.font = '12px Arial';
+        ctx.fillText('Drag corners to resize', shape.startX, shape.startY - 20);
       }
     }
   };
@@ -907,6 +1172,7 @@ export default function Canvas({
             onOpenMolView={onOpenMolView}
             onOpenPeriodicTable={onOpenPeriodicTable}
             onOpenMoleculeSearch={() => setShowMoleculeSearch(true)}
+            onOpenChemistryWidgets={() => setShowChemistryWidgetPanel(true)}
           />
         </div>
       )}
@@ -1292,6 +1558,7 @@ export default function Canvas({
             onOpenMolView={onOpenMolView}
             onOpenPeriodicTable={onOpenPeriodicTable}
             onOpenMoleculeSearch={() => setShowMoleculeSearch(true)}
+            onOpenChemistryWidgets={() => setShowChemistryWidgetPanel(true)}
           />
         </div>
       )}
@@ -1351,6 +1618,15 @@ export default function Canvas({
             setShowMoleculeSearch(false);
           }}
         />
+      )}
+
+      {/* Chemistry Widget Panel Modal */}
+      {showChemistryWidgetPanel && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="w-full max-w-2xl max-h-[90vh] overflow-hidden">
+            <ChemistryWidgetPanel onClose={() => setShowChemistryWidgetPanel(false)} />
+          </div>
+        </div>
       )}
     </div>
   );

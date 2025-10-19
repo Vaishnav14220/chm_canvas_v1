@@ -14,6 +14,70 @@ export default function MoleculeSearch({ onSelectMolecule, isOpen = true, onClos
   const [moleculeData, setMoleculeData] = useState<MoleculeData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
+  // Comprehensive list of common molecules for autocomplete
+  const commonMolecules = [
+    'methane', 'ethane', 'propane', 'butane', 'pentane',
+    'ethene', 'ethyne', 'benzene', 'toluene', 'xylene',
+    'methanol', 'ethanol', 'propanol', 'butanol', 'phenol',
+    'acetone', 'acetaldehyde', 'formaldehyde',
+    'water', 'hydrogen', 'oxygen', 'nitrogen', 'carbon dioxide', 'carbon monoxide',
+    'ammonia', 'sulfur dioxide', 'nitrous oxide', 'nitrogen dioxide',
+    'glucose', 'fructose', 'sucrose', 'lactose', 'maltose',
+    'caffeine', 'aspirin', 'ibuprofen', 'acetaminophen',
+    'sodium chloride', 'potassium chloride', 'calcium carbonate',
+    'sulfuric acid', 'hydrochloric acid', 'acetic acid', 'formic acid',
+    'sodium hydroxide', 'potassium hydroxide', 'ammonia solution',
+    'hydrogen peroxide', 'ethyl alcohol', 'glycerol', 'urea',
+    'DNA', 'RNA', 'cholesterol', 'vitamin C', 'nicotine',
+    'CO2', 'H2O', 'H2', 'O2', 'N2', 'NH3', 'CH4', 'C2H6',
+  ];
+
+  const handleSearchTermChange = (value: string) => {
+    setSearchTerm(value);
+    
+    // Generate suggestions
+    if (value.trim().length > 0) {
+      const filtered = commonMolecules.filter(mol =>
+        mol.toLowerCase().includes(value.toLowerCase())
+      );
+      setSuggestions(filtered.slice(0, 8)); // Show max 8 suggestions
+      setShowSuggestions(true);
+    } else {
+      setSuggestions([]);
+      setShowSuggestions(false);
+    }
+  };
+
+  const handleSuggestionClick = async (suggestion: string) => {
+    setSearchTerm(suggestion);
+    setSuggestions([]);
+    setShowSuggestions(false);
+    
+    // Auto-search for the suggestion
+    setIsLoading(true);
+    setError(null);
+    setMoleculeData(null);
+
+    try {
+      const data = await getMoleculeByName(suggestion);
+      if (data) {
+        setMoleculeData(data);
+        if (!searchHistory.includes(suggestion)) {
+          setSearchHistory([suggestion, ...searchHistory].slice(0, 5));
+        }
+      } else {
+        setError(`Molecule "${suggestion}" not found in PubChem database.`);
+      }
+    } catch (err) {
+      console.error('Search error:', err);
+      setError('Failed to search molecule. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleSearch = async () => {
     if (!searchTerm.trim()) {
@@ -110,11 +174,11 @@ export default function MoleculeSearch({ onSelectMolecule, isOpen = true, onClos
           {/* Search Input */}
           <div className="space-y-2">
             <label className="text-sm font-semibold text-slate-300">Molecule Name</label>
-            <div className="flex gap-2">
+            <div className="flex gap-2 relative">
               <input
                 type="text"
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => handleSearchTermChange(e.target.value)}
                 onKeyPress={handleKeyPress}
                 placeholder="e.g., benzene, glucose, caffeine, water..."
                 className="flex-1 px-4 py-2 bg-slate-800 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
@@ -122,7 +186,7 @@ export default function MoleculeSearch({ onSelectMolecule, isOpen = true, onClos
               <button
                 onClick={handleSearch}
                 disabled={isLoading}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 text-white rounded-lg flex items-center gap-2 transition"
+                className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 text-white rounded-lg flex items-center gap-2 transition font-semibold"
               >
                 {isLoading ? (
                   <>
@@ -136,6 +200,22 @@ export default function MoleculeSearch({ onSelectMolecule, isOpen = true, onClos
                   </>
                 )}
               </button>
+              
+              {/* Autocomplete Suggestions Dropdown */}
+              {showSuggestions && suggestions.length > 0 && (
+                <div className="absolute top-full left-0 right-12 mt-1 bg-slate-800 border border-slate-600 rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto">
+                  {suggestions.map((suggestion, index) => (
+                    <button
+                      key={index}
+                      onClick={() => handleSuggestionClick(suggestion)}
+                      className="w-full text-left px-4 py-2 hover:bg-slate-700 text-slate-200 border-b border-slate-700 last:border-b-0 transition flex items-center gap-2"
+                    >
+                      <Search size={16} className="text-cyan-400" />
+                      <span>{suggestion}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -247,6 +327,20 @@ export default function MoleculeSearch({ onSelectMolecule, isOpen = true, onClos
                 <li>Results include molecular formula, weight, and 2D structure</li>
                 <li>Click "View 3D" to see the 3D structure in MolView</li>
               </ul>
+            </div>
+          )}
+
+          {/* How to Use Section */}
+          {moleculeData && (
+            <div className="bg-blue-900/20 border border-blue-600/30 rounded-lg p-4 space-y-2">
+              <p className="text-sm font-semibold text-blue-300">📚 How to Create a Reaction:</p>
+              <ol className="text-sm text-blue-200 space-y-1 list-decimal list-inside">
+                <li>Click <span className="font-semibold text-green-400">"Insert into Canvas"</span> to add this molecule</li>
+                <li>Repeat for other molecules in your reaction (reactants and products)</li>
+                <li>Use the arrow tool to show the reaction direction</li>
+                <li>Add conditions (heat, catalyst, etc.) above the arrow</li>
+                <li>Arrange molecules to show the complete reaction</li>
+              </ol>
             </div>
           )}
         </div>

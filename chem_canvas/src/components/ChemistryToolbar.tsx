@@ -21,6 +21,7 @@ import {
   RotateCw,
   Microscope
 } from 'lucide-react';
+import ResizeToolbar from './ResizeToolbar';
 
 interface ChemistryToolbarProps {
   onToolSelect: (tool: string) => void;
@@ -33,6 +34,10 @@ interface ChemistryToolbarProps {
   onOpenMolView?: () => void;
   onOpenPeriodicTable?: () => void;
   onOpenMoleculeSearch?: () => void;
+  onOpenChemistryWidgets?: () => void;
+  selectedShape?: any;
+  onShapeResize?: (width: number, height: number) => void;
+  onShapeRotate?: (angle: number) => void;
 }
 
 const ChemistryToolbar: React.FC<ChemistryToolbarProps> = ({
@@ -45,7 +50,11 @@ const ChemistryToolbar: React.FC<ChemistryToolbarProps> = ({
   onOpenCalculator,
   onOpenMolView,
   onOpenPeriodicTable,
-  onOpenMoleculeSearch
+  onOpenMoleculeSearch,
+  onOpenChemistryWidgets,
+  selectedShape,
+  onShapeResize,
+  onShapeRotate
 }) => {
   const [showShapes, setShowShapes] = useState(false);
 
@@ -76,6 +85,7 @@ const ChemistryToolbar: React.FC<ChemistryToolbarProps> = ({
     { id: 'molview', name: '3D Molecules', icon: MolViewIcon, description: '3D molecular viewer', isSpecial: true },
     { id: 'periodic', name: 'Periodic Table', icon: Grid3X3, description: 'Interactive periodic table', isSpecial: true },
     { id: 'molecules', name: 'Search Molecules', icon: Microscope, description: 'Search molecules from PubChem', isSpecial: true },
+    { id: 'widgets', name: 'Chemistry Widgets', icon: Beaker, description: 'Interactive chemistry tools', isSpecial: true },
     { id: 'move', name: 'Move', icon: Move, description: 'Move elements' },
     { id: 'rotate', name: 'Rotate', icon: RotateCw, description: 'Rotate elements' },
   ];
@@ -124,6 +134,8 @@ const ChemistryToolbar: React.FC<ChemistryToolbarProps> = ({
                   onOpenPeriodicTable();
                 } else if (tool.isSpecial && tool.id === 'molecules' && onOpenMoleculeSearch) {
                   onOpenMoleculeSearch();
+                } else if (tool.isSpecial && tool.id === 'widgets' && onOpenChemistryWidgets) {
+                  onOpenChemistryWidgets();
                 } else {
                   onToolSelect(tool.id);
                 }
@@ -208,6 +220,11 @@ const ChemistryToolbar: React.FC<ChemistryToolbarProps> = ({
         <div className="text-xs text-slate-400 mt-1 text-center">{currentSize}px</div>
       </div>
 
+      {/* Resize Toolbar */}
+      <ResizeToolbar
+        onShapeResize={onShapeResize}
+        onShapeRotate={onShapeRotate}
+      />
 
       {/* Quick Actions */}
       <div className="border-t border-slate-700/50 pt-3">

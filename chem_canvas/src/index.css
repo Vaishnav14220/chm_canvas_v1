@@ -364,6 +364,12 @@ canvas:active {
   cursor: crosshair;
 }
 
+.ChemDoodleCanvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
 /* Notion-like smooth focus ring */
 input:focus,
 textarea:focus,
