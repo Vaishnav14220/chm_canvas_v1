@@ -13,6 +13,7 @@
   "dependencies": {
     "@google/genai": "^1.25.0",
     "@google/generative-ai": "^0.24.1",
+    "@llamaindex/chat-ui": "^0.6.1",
     "@llm-ui/code": "^0.13.3",
     "@llm-ui/markdown": "^0.13.3",
     "@llm-ui/react": "^0.13.3",
@@ -22,6 +23,7 @@
     "@radix-ui/react-tabs": "^1.1.13",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@supabase/supabase-js": "^2.57.4",
+    "@swc/helpers": "^0.5.17",
     "clsx": "^2.1.1",
     "firebase": "^12.4.0",
     "katex": "^0.16.25",

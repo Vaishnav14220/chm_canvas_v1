@@ -3,6 +3,7 @@ import { FileText, Settings, Search, Atom, Sparkles, Beaker, FlaskConical, Edit3
 import Canvas from './components/Canvas';
 import Toolbar from './components/Toolbar';
 import AIChat from './components/AIChat';
+import LlamaChat from './components/LlamaChat';
 import LiveChat from './components/LiveChat';
 import CommandPalette from './components/CommandPalette';
 import StudyTools from './components/StudyTools';
@@ -74,6 +75,7 @@ const App: React.FC = () => {
   const [studyToolsWidth, setStudyToolsWidth] = useState(320);
   const [showStudyToolsPanel, setShowStudyToolsPanel] = useState(false);
   const [showChatPanel, setShowChatPanel] = useState(false);
+  const [useLlamaChat, setUseLlamaChat] = useState(false);
   const [showLiveChat, setShowLiveChat] = useState(false);
   const [showChemistryPanel, setShowChemistryPanel] = useState(false);
   const [chemistryPanelInitialView, setChemistryPanelInitialView] = useState<'overview' | 'nmr'>('overview');
@@ -708,7 +710,7 @@ Here is the learner's question: ${message}`
           </div>
         </div>
       ) : (
-        <div className="flex h-[calc(100vh-5rem)]">
+      <div className="flex h-[calc(100vh-5rem)]">
         {/* Sources Panel */}
         {documentViewerOpen && (
           <>
@@ -1170,14 +1172,18 @@ Here is the learner's question: ${message}`
                       </button>
                     </div>
                   </div>
-                  <div className="flex-1 min-w-[280px]">
-                    <AIChat
-                      onSendMessage={handleSendMessage}
-                      interactions={interactions}
-                      isLoading={isLoading}
-                      documentName={sources.length > 0 ? `${sources.length} sources` : 'No sources'}
-                      onOpenDocument={() => setDocumentViewerOpen(true)}
-                    />
+                  <div className="flex-1 min-w-[280px] overflow-hidden">
+                    {useLlamaChat ? (
+                      <LlamaChat onClose={() => setUseLlamaChat(false)} />
+                    ) : (
+                      <AIChat
+                        onSendMessage={handleSendMessage}
+                        interactions={interactions}
+                        isLoading={isLoading}
+                        documentName={sources.length > 0 ? `${sources.length} sources` : 'No sources'}
+                        onOpenDocument={() => setDocumentViewerOpen(true)}
+                      />
+                    )}
                   </div>
                 </div>
               </>
@@ -1236,6 +1242,7 @@ Here is the learner's question: ${message}`
                         <button 
                           onClick={() => {
                             setShowChatPanel(true);
+                            setUseLlamaChat(false);
                           }}
                           className="flex flex-col items-center space-y-2 p-4 bg-secondary hover:bg-primary/10 border border-border rounded-lg transition-all duration-200 hover:shadow-sm hover:border-primary/50"
                         >
@@ -1243,6 +1250,19 @@ Here is the learner's question: ${message}`
                             <MessageSquare className="h-5 w-5" />
                           </div>
                           <p className="text-xs font-medium text-center">Chat</p>
+                        </button>
+
+                        <button 
+                          onClick={() => {
+                            setShowChatPanel(true);
+                            setUseLlamaChat(true);
+                          }}
+                          className="flex flex-col items-center space-y-2 p-4 bg-secondary hover:bg-primary/10 border border-border rounded-lg transition-all duration-200 hover:shadow-sm hover:border-primary/50"
+                        >
+                          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-500/10 text-purple-400">
+                            <Headphones className="h-5 w-5" />
+                          </div>
+                          <p className="text-xs font-medium text-center">Canvas Chat</p>
                         </button>
                         
                         <button 
