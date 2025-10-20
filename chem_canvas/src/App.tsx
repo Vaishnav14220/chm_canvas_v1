@@ -64,6 +64,7 @@ const App: React.FC = () => {
   const [interactions, setInteractions] = useState<AIInteraction[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isNmrAssistantActive, setIsNmrAssistantActive] = useState(false);
+  const [showNmrAssistant, setShowNmrAssistant] = useState(false);
   
   // Panel sizes and visibility
   const [sourcesWidth, setSourcesWidth] = useState(384);
@@ -315,7 +316,7 @@ const App: React.FC = () => {
     alert('Settings saved successfully!');
   };
 
-const handleSendMessage = async (message: string) => {
+  const handleSendMessage = async (message: string) => {
     setIsLoading(true);
     
     // Add user message immediately
@@ -342,7 +343,7 @@ const handleSendMessage = async (message: string) => {
       }
 
       // Build context from sources if available
-let contextPrompt = '';
+      let contextPrompt = '';
       if (sources.length > 0) {
         contextPrompt = '**Document Context:**\n';
         sources.forEach((source, index) => {
@@ -516,9 +517,9 @@ Here is the learner's question: ${message}`
               
               <button
                 onClick={() => {
-            setIsNmrAssistantActive(true);
-            setShowNmrFullscreen(true);
-            setShowChatPanel(true);
+                  setShowNmrFullscreen(true);
+                  setIsNmrAssistantActive(false);
+                  setShowChatPanel(false);
                 }}
                 className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-11 px-4"
               >
@@ -607,13 +608,29 @@ Here is the learner's question: ${message}`
 
       {/* Fullscreen NMR viewer */}
       {showNmrFullscreen ? (
-        <div className="flex flex-col h-[calc(100vh-5rem)]">
+        <div className="flex h-[calc(100vh-5rem)] flex-col">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between bg-slate-900 border-b border-slate-800 px-4 md:px-6 py-3">
             <div>
               <h2 className="text-sm font-semibold text-white">NMRium Viewer (Fullscreen)</h2>
               <p className="text-xs text-slate-400">Embedded from the NFDI4Chem public instance.</p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => {
+                  setShowNmrAssistant(prev => {
+                    const next = !prev;
+                    setIsNmrAssistantActive(next);
+                    if (!next) {
+                      setShowChatPanel(false);
+                    }
+                    return next;
+                  });
+                }}
+                className={`inline-flex items-center gap-2 px-3 py-2 text-xs font-medium rounded ${showNmrAssistant ? 'bg-blue-600 text-white hover:bg-blue-500' : 'bg-slate-800 border border-slate-600 text-slate-200 hover:bg-slate-700'}`}
+              >
+                <Headphones className="h-4 w-4" />
+                {showNmrAssistant ? 'Hide NMR Assistant' : 'Open NMR Assistant'}
+              </button>
               <button
                 onClick={() => window.open('https://nmrium.nmrxiv.org?workspace=default', '_blank', 'noopener')}
                 className="inline-flex items-center gap-2 px-3 py-2 text-xs font-medium rounded bg-slate-800 border border-slate-600 text-slate-200 hover:bg-slate-700"
@@ -624,6 +641,8 @@ Here is the learner's question: ${message}`
                 onClick={() => {
                   setShowNmrFullscreen(false);
                   setIsNmrAssistantActive(false);
+                  setShowNmrAssistant(false);
+                  setShowChatPanel(false);
                 }}
                 className="inline-flex items-center gap-2 px-3 py-2 text-xs font-medium rounded bg-blue-600 text-white hover:bg-blue-500"
               >
@@ -631,41 +650,47 @@ Here is the learner's question: ${message}`
               </button>
             </div>
           </div>
-          <div className="flex-1 w-full">
-            <iframe
-              title="nmrium-fullscreen"
-              src="https://nmrium.nmrxiv.org?workspace=default"
-              className="h-full w-full"
-              allowFullScreen
-            />
-          </div>
-          {showChatPanel && (
-            <div className="border-t border-slate-800">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between bg-slate-900 px-4 md:px-6 py-3">
-                <div>
-                  <h3 className="text-sm font-semibold text-white">NMR Assistant</h3>
-                  <p className="text-xs text-slate-400">Guide, SMILES suggestions, and spectrum tips</p>
-                </div>
-                <button
-                  onClick={() => setShowChatPanel(false)}
-                  className="text-xs text-slate-300 bg-slate-800 hover:bg-slate-700 px-3 py-1 rounded-md"
-                >
-                  Close Chat
-                </button>
-              </div>
-              <div className="h-72 md:h-80 bg-slate-900 border-t border-slate-800">
-                <AIChat
-                  onSendMessage={handleSendMessage}
-                  interactions={interactions}
-                  isLoading={isLoading}
-                  documentName="NMRium Workspace"
-                />
-              </div>
+          <div className="flex flex-1 overflow-hidden">
+            <div className={`flex-1 overflow-hidden ${showNmrAssistant ? 'lg:pr-0' : ''}`}>
+              <iframe
+                title="nmrium-fullscreen"
+                src="https://nmrium.nmrxiv.org?workspace=default"
+                className="h-full w-full"
+                allowFullScreen
+              />
             </div>
-          )}
+            {showNmrAssistant && (
+              <aside className="flex w-full max-w-md flex-col border-l border-slate-800 bg-slate-900">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between px-4 py-3 border-b border-slate-800">
+                  <div>
+                    <h3 className="text-sm font-semibold text-white">NMR Assistant</h3>
+                    <p className="text-xs text-slate-400">Guide, SMILES suggestions, and spectrum tips</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShowNmrAssistant(false);
+                      setIsNmrAssistantActive(false);
+                      setShowChatPanel(false);
+                    }}
+                    className="text-xs text-slate-300 bg-slate-800 hover:bg-slate-700 px-3 py-1 rounded-md"
+                  >
+                    Close Chat
+                  </button>
+                </div>
+                <div className="flex-1 overflow-hidden bg-slate-900">
+                  <AIChat
+                    onSendMessage={handleSendMessage}
+                    interactions={interactions}
+                    isLoading={isLoading}
+                    documentName="NMRium Workspace"
+                  />
+                </div>
+              </aside>
+            )}
+          </div>
         </div>
       ) : (
-      <div className="flex h-[calc(100vh-5rem)]">
+        <div className="flex h-[calc(100vh-5rem)]">
         {/* Sources Panel */}
         {documentViewerOpen && (
           <>
