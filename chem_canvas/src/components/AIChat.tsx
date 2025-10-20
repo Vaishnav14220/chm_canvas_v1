@@ -3,8 +3,13 @@ import { Send, Loader2, Sparkles, FileText, Copy } from 'lucide-react';
 import { AIInteraction } from '../types';
 import { useLLMOutput, type LLMOutputComponent } from '@llm-ui/react';
 import { markdownLookBack } from '@llm-ui/markdown';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
 import { findCompleteCodeBlock, findPartialCodeBlock, codeBlockLookBack } from '@llm-ui/code';
 import { fetchCanonicalSmiles } from '../services/pubchemService';
+import 'katex/dist/katex.min.css';
 
 interface AIChatProps {
   onSendMessage: (message: string) => Promise<void>;
@@ -118,18 +123,70 @@ const MarkdownComponent: LLMOutputComponent = ({ blockMatch }) => {
   const content = blockMatch.output;
   const onCitationClick = (blockMatch as any).onCitationClick;
   
-  // Handle citations and other special formatting
-  const parts = content.split(/(\[\[(\d+)\]\]|\[(\d+)\])/g);
+  const renderMarkdown = (text: string) => (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm, remarkMath]}
+      rehypePlugins={[rehypeKatex]}
+      components={{
+        a: ({ node, ...props }) => (
+          <a {...props} className="text-blue-400 hover:underline" target="_blank" rel="noopener noreferrer" />
+        ),
+        code: ({ inline, className, children, ...props }) => {
+          const match = /language-(\w+)/.exec(className || '');
+          if (!inline && match) {
+            return (
+              <pre className="bg-gray-900 border border-gray-700 rounded-lg p-3 overflow-x-auto text-xs" {...props}>
+                <code className={className}>{children}</code>
+              </pre>
+            );
+          }
+          return (
+            <code className="bg-gray-800/80 border border-gray-700 rounded px-1.5 py-0.5 text-xs" {...props}>
+              {children}
+            </code>
+          );
+        },
+        table: ({ children }) => (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse border border-gray-700">
+              {children}
+            </table>
+          </div>
+        ),
+        th: ({ children }) => (
+          <th className="border border-gray-700 px-3 py-2 bg-gray-800 font-semibold text-sm">
+            {children}
+          </th>
+        ),
+        td: ({ children }) => (
+          <td className="border border-gray-700 px-3 py-2 text-sm">
+            {children}
+          </td>
+        ),
+        li: ({ children }) => (
+          <li className="mb-1">
+            {children}
+          </li>
+        )
+      }}
+      className="prose prose-sm prose-invert max-w-none space-y-3"
+    >
+      {text}
+    </ReactMarkdown>
+  );
   
+  const citationRegex = /(\[\[(\d+)\]\]|\[(\d+)\])/g;
+  const parts = content.split(citationRegex);
+
   return (
-    <div className="prose prose-sm prose-invert max-w-none">
-      {parts.map((part: string, partIndex: number) => {
-        const citationMatch = part.match(/^\[\[?(\d+)\]\]?$/);
+    <div className="space-y-2">
+      {parts.map((part: string, idx: number) => {
+        const citationMatch = part?.match?.(/^\[\[?(\d+)\]\]?$/);
         if (citationMatch) {
           const pageNum = citationMatch[1];
           return (
             <button
-              key={partIndex}
+              key={`cite-${idx}`}
               onClick={onCitationClick}
               className="inline-flex items-center px-2 py-1 mx-1 text-xs font-medium bg-blue-600/20 text-blue-300 rounded-md hover:bg-blue-600/30 transition-colors border border-blue-600/30"
             >
@@ -137,7 +194,11 @@ const MarkdownComponent: LLMOutputComponent = ({ blockMatch }) => {
             </button>
           );
         }
-        return <span key={partIndex}>{part}</span>;
+        const trimmed = part?.trim?.();
+        if (!trimmed) return null;
+        return (
+          <div key={`md-${idx}`}>{renderMarkdown(part)}</div>
+        );
       })}
     </div>
   );
