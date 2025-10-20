@@ -57,6 +57,36 @@ export const generateTextContent = async (prompt: string): Promise<string> => {
   }
 };
 
+export const streamTextContent = async (
+  prompt: string,
+  onChunk: (chunk: string) => void
+): Promise<string> => {
+  if (!genAI) {
+    throw new Error('Gemini API not initialized. Please provide an API key.');
+  }
+
+  try {
+    const modelName = await getAvailableModel(genAI);
+    const model = genAI.getGenerativeModel({ model: modelName });
+    const result = await model.generateContentStream(prompt);
+
+    let fullText = '';
+
+    for await (const response of result.stream) {
+      const chunk = response.text();
+      if (chunk) {
+        fullText += chunk;
+        onChunk(chunk);
+      }
+    }
+
+    return fullText;
+  } catch (error) {
+    console.error('Error streaming content:', error);
+    throw error;
+  }
+};
+
 export const generateImageDescription = async (imageUrl: string): Promise<string> => {
   if (!genAI) {
     throw new Error('Gemini API not initialized. Please provide an API key.');

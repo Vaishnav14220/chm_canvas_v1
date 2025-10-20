@@ -360,16 +360,31 @@ Here is the learner's question: ${message}`
 
       const fullPrompt = contextPrompt + nmrGuidance;
 
-      // Call Gemini API
-      const aiResponse = await geminiService.generateTextContent(fullPrompt);
-      
+      const assistantId = (Date.now() + 1).toString();
       const assistantInteraction: AIInteraction = {
-        id: (Date.now() + 1).toString(),
+        id: assistantId,
         prompt: '',
-        response: aiResponse,
+        response: '',
         timestamp: new Date()
       };
       setInteractions(prev => [...prev, assistantInteraction]);
+
+      const finalResponse = await geminiService.streamTextContent(fullPrompt, (chunk) => {
+        if (!chunk) return;
+        setInteractions(prev => prev.map(interaction => {
+          if (interaction.id === assistantId) {
+            return {
+              ...interaction,
+              response: (interaction.response || '') + chunk
+            };
+          }
+          return interaction;
+        }));
+      });
+
+      setInteractions(prev => prev.map(interaction =>
+        interaction.id === assistantId ? { ...interaction, response: finalResponse } : interaction
+      ));
       
     } catch (error: any) {
       console.error('Gemini API error:', error);
