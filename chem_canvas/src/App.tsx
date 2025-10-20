@@ -1136,34 +1136,19 @@ Here is the learner's question: ${message}`
 
             {/* AI Chat */}
             {showChatPanel && (
-              <>
-                {/* Resize Handle */}
-                <div
-                  className="w-3 bg-muted hover:bg-primary/30 cursor-col-resize transition-colors border-r border-border flex items-center justify-center"
-                  onMouseDown={(e) => handleMouseDown('chat', e)}
-                  title="Drag to resize chat panel"
-                >
-                  <div className="w-1 h-12 bg-border hover:bg-primary rounded-full"></div>
-                </div>
-                
-                <div 
-                  className="border-r-2 border-border bg-card flex flex-col shadow-lg"
-                  style={{ width: chatWidth }}
-                >
-                  <div className="px-4 py-3 border-b border-border bg-muted/50 flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary">
-                        <MessageSquare className="h-4 w-4 text-primary-foreground" />
+              <div className="absolute inset-0 flex items-center justify-center z-30 pointer-events-none">
+                <div className="pointer-events-auto w-full max-w-[420px] px-4 sm:px-6">
+                  <div className="bg-card border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+                    <div className="px-4 py-3 border-b border-border bg-muted/60 flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary">
+                          <MessageSquare className="h-4 w-4 text-primary-foreground" />
+                        </div>
+                        <div>
+                          <h3 className="text-sm font-semibold">AI Chat</h3>
+                          <p className="text-xs text-muted-foreground">Ask questions about chemistry</p>
+                        </div>
                       </div>
-                      <div>
-                        <h3 className="text-sm font-semibold">AI Chat</h3>
-                        <p className="text-xs text-muted-foreground">Ask questions about chemistry</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
-                        {Math.round(chatWidth)}px
-                      </span>
                       <button
                         onClick={() => setShowChatPanel(false)}
                         className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-8 w-8"
@@ -1171,22 +1156,22 @@ Here is the learner's question: ${message}`
                         ✕
                       </button>
                     </div>
-                  </div>
-                  <div className="flex-1 min-w-[280px] overflow-hidden">
-                    {useLlamaChat ? (
-                      <LlamaChat onClose={() => setUseLlamaChat(false)} />
-                    ) : (
-                      <AIChat
-                        onSendMessage={handleSendMessage}
-                        interactions={interactions}
-                        isLoading={isLoading}
-                        documentName={sources.length > 0 ? `${sources.length} sources` : 'No sources'}
-                        onOpenDocument={() => setDocumentViewerOpen(true)}
-                      />
-                    )}
+                    <div className="flex-1 min-h-0">
+                      {useLlamaChat ? (
+                        <LlamaChat onClose={() => setUseLlamaChat(false)} />
+                      ) : (
+                        <AIChat
+                          onSendMessage={handleSendMessage}
+                          interactions={interactions}
+                          isLoading={isLoading}
+                          documentName={sources.length > 0 ? `${sources.length} sources` : 'No sources'}
+                          onOpenDocument={() => setDocumentViewerOpen(true)}
+                        />
+                      )}
+                    </div>
                   </div>
                 </div>
-              </>
+              </div>
             )}
 
             {/* Study Tools Panel */}
