@@ -68,7 +68,14 @@ export const streamTextContent = async (
   try {
     const modelName = await getAvailableModel(genAI);
     const model = genAI.getGenerativeModel({ model: modelName });
-    const result = await model.generateContentStream(prompt);
+    const result = await model.generateContentStream({
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: prompt }]
+        }
+      ]
+    });
 
     let fullText = '';
 
