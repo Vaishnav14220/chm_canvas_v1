@@ -13,6 +13,29 @@ interface AIChatProps {
   onOpenDocument?: () => void;
 }
 
+const SMILES_CODE_REGEX = /`([^`]+)`/g;
+const SMILES_LABEL_REGEX = /SMILES[^:]*[:\-]\s*([A-Za-z0-9@+\-\[\]\(\)\\\/=#$%]+)(?=\s|$)/gi;
+
+const extractSmilesCandidates = (text: string): string[] => {
+  const results = new Set<string>();
+
+  for (const match of text.matchAll(SMILES_CODE_REGEX)) {
+    const candidate = match[1]?.trim();
+    if (candidate) {
+      results.add(candidate);
+    }
+  }
+
+  for (const match of text.matchAll(SMILES_LABEL_REGEX)) {
+    const candidate = match[1]?.trim();
+    if (candidate) {
+      results.add(candidate);
+    }
+  }
+
+  return Array.from(results);
+};
+
 // Markdown component for text blocks
 const MarkdownComponent: LLMOutputComponent = ({ blockMatch }) => {
   const content = blockMatch.output;
@@ -233,38 +256,30 @@ export default function AIChat({ onSendMessage, interactions, isLoading, documen
                       onCitationClick={onOpenDocument}
                     />
                   </div>
-                  {interaction.response && interaction.response.match(/(SMILES|Smiles|smiles)\s*:?(.*)/) && (
-                    <div className="bg-gray-900/80 border border-gray-700 rounded-xl p-3 space-y-2">
-                      <p className="text-xs font-semibold text-blue-300 flex items-center gap-1">
-                        Suggested SMILES
-                      </p>
-                      {interaction.response
-                        .split(/\n|<br\s*\/?>/)
-                        .map(line => line.trim())
-                        .filter(line => /(SMILES|Smiles|smiles)/.test(line))
-                        .map((line, idx) => {
-                          const match = line.match(/(SMILES|Smiles|smiles)\s*:?(.*)/);
-                          if (!match) return null;
-                          const smiles = match[2]?.trim();
-                          if (!smiles) return null;
-                          return (
-                            <div key={idx} className="flex items-center justify-between gap-2 bg-gray-800/70 rounded-lg px-3 py-2">
-                              <span className="text-xs font-mono text-gray-100 break-all">{smiles}</span>
-                              <button
-                                onClick={() => navigator.clipboard.writeText(smiles)}
-                                className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 bg-blue-900/30 hover:bg-blue-900/40 px-2 py-1 rounded-md transition-colors"
-                                title="Copy SMILES"
-                              >
-                                <Copy size={14} /> Copy
-                              </button>
-                            </div>
-                          );
-                        })
-                        .filter(Boolean as any)
-                      }
-                      <p className="text-[10px] text-gray-400">Copy the SMILES and paste it into NMRium's molecule input to visualize the structure.</p>
-                    </div>
-                  )}
+                  {(() => {
+                    const smilesList = extractSmilesCandidates(interaction.response || '');
+                    if (!smilesList.length) return null;
+                    return (
+                      <div className="bg-gray-900/80 border border-gray-700 rounded-xl p-3 space-y-2">
+                        <p className="text-xs font-semibold text-blue-300 flex items-center gap-1">
+                          Suggested SMILES
+                        </p>
+                        {smilesList.map((smiles, idx) => (
+                          <div key={`${smiles}-${idx}`} className="flex items-center justify-between gap-2 bg-gray-800/70 rounded-lg px-3 py-2">
+                            <span className="text-xs font-mono text-gray-100 break-all">{smiles}</span>
+                            <button
+                              onClick={() => navigator.clipboard.writeText(smiles)}
+                              className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 bg-blue-900/30 hover:bg-blue-900/40 px-2 py-1 rounded-md transition-colors"
+                              title="Copy SMILES"
+                            >
+                              <Copy size={14} /> Copy
+                            </button>
+                          </div>
+                        ))}
+                        <p className="text-[10px] text-gray-400">Copy the SMILES and paste it into NMRium's molecule input to visualize the structure.</p>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
