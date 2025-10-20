@@ -4,6 +4,7 @@ import { AIInteraction } from '../types';
 import { useLLMOutput, type LLMOutputComponent } from '@llm-ui/react';
 import { markdownLookBack } from '@llm-ui/markdown';
 import { findCompleteCodeBlock, findPartialCodeBlock, codeBlockLookBack } from '@llm-ui/code';
+import { fetchCanonicalSmiles } from '../services/pubchemService';
 
 interface AIChatProps {
   onSendMessage: (message: string) => Promise<void>;
@@ -34,6 +35,82 @@ const extractSmilesCandidates = (text: string): string[] => {
   }
 
   return Array.from(results);
+};
+
+const verifySmilesList = async (candidates: string[]): Promise<string[]> => {
+  const verified: string[] = [];
+  for (const candidate of candidates) {
+    try {
+      const canonical = await fetchCanonicalSmiles(candidate);
+      if (canonical) {
+        verified.push(canonical);
+        continue;
+      }
+    } catch (err) {
+      console.warn('⚠️ PubChem SMILES lookup failed:', err);
+    }
+    // Fallback to raw candidate if canonicalization fails
+    verified.push(candidate);
+  }
+  return Array.from(new Set(verified));
+};
+
+const VerifiedSmilesBlock = ({ sourceText }: { sourceText: string }) => {
+  const [verified, setVerified] = useState<string[]>([]);
+  const [isChecking, setIsChecking] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    const candidates = extractSmilesCandidates(sourceText);
+    if (!candidates.length) {
+      setVerified([]);
+      return;
+    }
+
+    setIsChecking(true);
+    verifySmilesList(candidates)
+      .then(list => {
+        if (isMounted) {
+          setVerified(list);
+        }
+      })
+      .catch(err => {
+        console.warn('⚠️ Error verifying SMILES list:', err);
+        if (isMounted) setVerified(candidates);
+      })
+      .finally(() => {
+        if (isMounted) setIsChecking(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [sourceText]);
+
+  if (!verified.length) {
+    return null;
+  }
+
+  return (
+    <div className="bg-gray-900/80 border border-gray-700 rounded-xl p-3 space-y-2">
+      <p className="text-xs font-semibold text-blue-300 flex items-center gap-1">
+        Suggested SMILES {isChecking && <Loader2 size={12} className="animate-spin text-blue-300" />}
+      </p>
+      {verified.map((smiles, idx) => (
+        <div key={`${smiles}-${idx}`} className="flex items-center justify-between gap-2 bg-gray-800/70 rounded-lg px-3 py-2">
+          <span className="text-xs font-mono text-gray-100 break-all">{smiles}</span>
+          <button
+            onClick={() => navigator.clipboard.writeText(smiles)}
+            className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 bg-blue-900/30 hover:bg-blue-900/40 px-2 py-1 rounded-md transition-colors"
+            title="Copy SMILES"
+          >
+            <Copy size={14} /> Copy
+          </button>
+        </div>
+      ))}
+      <p className="text-[10px] text-gray-400">Copy the SMILES and paste it into NMRium's molecule input to visualize the structure.</p>
+    </div>
+  );
 };
 
 // Markdown component for text blocks
@@ -256,30 +333,7 @@ export default function AIChat({ onSendMessage, interactions, isLoading, documen
                       onCitationClick={onOpenDocument}
                     />
                   </div>
-                  {(() => {
-                    const smilesList = extractSmilesCandidates(interaction.response || '');
-                    if (!smilesList.length) return null;
-                    return (
-                      <div className="bg-gray-900/80 border border-gray-700 rounded-xl p-3 space-y-2">
-                        <p className="text-xs font-semibold text-blue-300 flex items-center gap-1">
-                          Suggested SMILES
-                        </p>
-                        {smilesList.map((smiles, idx) => (
-                          <div key={`${smiles}-${idx}`} className="flex items-center justify-between gap-2 bg-gray-800/70 rounded-lg px-3 py-2">
-                            <span className="text-xs font-mono text-gray-100 break-all">{smiles}</span>
-                            <button
-                              onClick={() => navigator.clipboard.writeText(smiles)}
-                              className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 bg-blue-900/30 hover:bg-blue-900/40 px-2 py-1 rounded-md transition-colors"
-                              title="Copy SMILES"
-                            >
-                              <Copy size={14} /> Copy
-                            </button>
-                          </div>
-                        ))}
-                        <p className="text-[10px] text-gray-400">Copy the SMILES and paste it into NMRium's molecule input to visualize the structure.</p>
-                      </div>
-                    );
-                  })()}
+                  <VerifiedSmilesBlock sourceText={interaction.response || ''} />
                 </div>
               </div>
             </div>

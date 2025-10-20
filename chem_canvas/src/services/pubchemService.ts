@@ -16,6 +16,46 @@ export interface MoleculeData {
   sdfData?: string; // Add SDF data field
 }
 
+export const fetchCanonicalSmiles = async (input: string): Promise<string | null> => {
+  const identifier = input.trim();
+  if (!identifier) return null;
+
+  const tryEndpoint = async (endpoint: string): Promise<string | null> => {
+    const response = await fetchWithRetry(endpoint);
+    if (response && response.ok) {
+      try {
+        const data = await response.json();
+        const canonical = data?.PropertyTable?.Properties?.[0]?.CanonicalSMILES;
+        if (typeof canonical === 'string' && canonical.length > 0) {
+          return canonical;
+        }
+      } catch (err) {
+        console.warn('⚠️ Failed to parse canonical SMILES response:', err);
+      }
+    }
+    return null;
+  };
+
+  // First try treating the input as an existing SMILES string
+  const smilesEndpoint = `${PUBCHEM_PUG_URL}/compound/smiles/${encodeURIComponent(identifier)}/property/CanonicalSMILES/JSON`;
+  const smilesResult = await tryEndpoint(smilesEndpoint);
+  if (smilesResult) {
+    console.log('✅ Verified SMILES via PubChem canonicalization');
+    return smilesResult;
+  }
+
+  // If canonicalization fails, treat the input as a potential compound name
+  const nameEndpoint = `${PUBCHEM_PUG_URL}/compound/name/${encodeURIComponent(identifier)}/property/CanonicalSMILES/JSON`;
+  const nameResult = await tryEndpoint(nameEndpoint);
+  if (nameResult) {
+    console.log('✅ Fetched SMILES from PubChem using compound name');
+    return nameResult;
+  }
+
+  console.warn(`⚠️ Unable to verify SMILES for input: ${identifier}`);
+  return null;
+};
+
 // Helper function for API calls with retry logic
 const fetchWithRetry = async (url: string, retries = 3): Promise<Response | null> => {
   for (let i = 0; i < retries; i++) {
