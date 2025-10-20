@@ -213,8 +213,8 @@ export default function AIChat({ onSendMessage, interactions, isLoading, documen
   };
 
     return (
-      <div className="bg-gray-800 rounded-2xl shadow-2xl flex flex-col h-full border border-gray-700">
-        <div className="bg-gradient-to-r from-gray-800 to-gray-750 text-white px-6 py-4 rounded-t-2xl shadow-lg border-b border-gray-700">
+      <div className="bg-gray-800 rounded-2xl shadow-2xl flex flex-col h-full border border-gray-700 overflow-hidden">
+        <div className="bg-gradient-to-r from-gray-800 to-gray-750 text-white px-4 md:px-6 py-3 md:py-4 rounded-t-2xl shadow-lg border-b border-gray-700">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-3">
               <div className="bg-blue-600/20 p-2 rounded-lg">
@@ -243,7 +243,7 @@ export default function AIChat({ onSendMessage, interactions, isLoading, documen
           )}
         </div>
 
-      <div className="flex-1 overflow-y-auto p-6 space-y-4 min-h-0 bg-gray-900">
+      <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 min-h-0 bg-gray-900">
         {documentName && interactions.length > 0 && (
           <div className="bg-gradient-to-r from-green-900/30 to-emerald-900/30 border border-green-700/50 rounded-xl p-3 mb-4">
             <div className="flex items-start gap-3">
@@ -351,21 +351,20 @@ export default function AIChat({ onSendMessage, interactions, isLoading, documen
         )}
         <div ref={messagesEndRef} />
       </div>
-
       <form onSubmit={handleSubmit} className="p-4 border-t border-gray-700 bg-gray-800/80 backdrop-blur-sm rounded-b-2xl">
-        <div className="flex gap-3">
+        <div className="flex flex-col gap-3 md:flex-row">
           <input
             type="text"
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             placeholder="💬 Ask about your chemistry work..."
-            className="flex-1 px-5 py-3 border-2 border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-700 text-white placeholder-gray-400 shadow-sm"
+            className="flex-1 px-4 py-3 border-2 border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-700 text-white placeholder-gray-400 shadow-sm min-h-[48px]"
             disabled={isLoading}
           />
           <button
             type="submit"
             disabled={isLoading || !message.trim()}
-            className="px-5 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 font-semibold shadow-lg hover:shadow-xl transform hover:scale-105 disabled:transform-none"
+            className="md:px-5 md:py-3 px-4 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 font-semibold shadow-lg hover:shadow-xl transform hover:scale-105 disabled:transform-none"
           >
             {isLoading ? <Loader2 className="animate-spin" size={20} /> : <Send size={20} />}
           </button>
