@@ -17,6 +17,7 @@ interface AIChatProps {
   isLoading: boolean;
   documentName?: string;
   onOpenDocument?: () => void;
+  onSetGoalPrompt?: () => void;
 }
 
 const SMILES_CODE_REGEX = /`([^`]+)`/g;
@@ -248,7 +249,7 @@ function LLMMessage({ content, onCitationClick }: { content: string; onCitationC
   );
 }
 
-export default function AIChat({ onSendMessage, interactions, isLoading, documentName, onOpenDocument }: AIChatProps) {
+export default function AIChat({ onSendMessage, interactions, isLoading, documentName, onOpenDocument, onSetGoalPrompt }: AIChatProps) {
   const [message, setMessage] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -302,6 +303,37 @@ export default function AIChat({ onSendMessage, interactions, isLoading, documen
               </button>
             </div>
           )}
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              onClick={() => {
+                onSetGoalPrompt?.();
+                handleSend('Help me set a SMART chemistry goal for this session.');
+              }}
+              className="flex items-center gap-2 text-[11px] text-blue-200 bg-blue-900/40 border border-blue-700/40 rounded-lg px-3 py-1.5 hover:bg-blue-800/40 transition-colors"
+            >
+              <Sparkles size={14} className="text-blue-400" />
+              SMART Goal
+            </button>
+            <button
+              onClick={() => handleSend('Outline a learning plan using my current goal and suggest checkpoints for monitoring progress.')}
+              className="flex items-center gap-2 text-[11px] text-blue-200 bg-blue-900/40 border border-blue-700/40 rounded-lg px-3 py-1.5 hover:bg-blue-800/40 transition-colors"
+            >
+              Plan Pathway
+            </button>
+            <button
+              onClick={() => handleSend('Check in on my understanding and log a confidence rating for this topic.')}
+              className="flex items-center gap-2 text-[11px] text-blue-200 bg-blue-900/40 border border-blue-700/40 rounded-lg px-3 py-1.5 hover:bg-blue-800/40 transition-colors"
+            >
+              Monitor Progress
+            </button>
+            <button
+              onClick={() => handleSend('Help me reflect on today’s chemistry session and suggest next steps.')}
+              className="flex items-center gap-2 text-[11px] text-blue-200 bg-blue-900/40 border border-blue-700/40 rounded-lg px-3 py-1.5 hover:bg-blue-800/40 transition-colors"
+            >
+              Reflection
+            </button>
+          </div>
         </div>
 
       <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 min-h-0 bg-gray-900">

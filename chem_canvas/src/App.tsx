@@ -76,6 +76,7 @@ const App: React.FC = () => {
   const [showStudyToolsPanel, setShowStudyToolsPanel] = useState(false);
   const [showChatPanel, setShowChatPanel] = useState(false);
   const [useLlamaChat, setUseLlamaChat] = useState(false);
+  const [showSrlSidebar, setShowSrlSidebar] = useState(false);
   const [showLiveChat, setShowLiveChat] = useState(false);
   const [showChemistryPanel, setShowChemistryPanel] = useState(false);
   const [chemistryPanelInitialView, setChemistryPanelInitialView] = useState<'overview' | 'nmr'>('overview');
@@ -1138,7 +1139,7 @@ Here is the learner's question: ${message}`
             {showChatPanel && (
               <div className="absolute inset-0 z-30 pointer-events-none">
                 <div
-                  className="absolute top-24 right-4 sm:right-6 pointer-events-auto"
+                  className={`absolute top-24 ${showSrlSidebar ? 'right-[22rem]' : 'right-4 sm:right-6'} pointer-events-auto transition-all duration-200`}
                   style={{
                     width: Math.min(chatWidth, 420),
                     maxWidth: 'min(92vw, 420px)'
@@ -1167,6 +1168,12 @@ Here is the learner's question: ${message}`
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setShowSrlSidebar((prev) => !prev)}
+                            className={`inline-flex items-center justify-center whitespace-nowrap rounded-md text-xs font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 h-8 px-3 border ${showSrlSidebar ? 'bg-primary text-primary-foreground border-primary' : 'border-border hover:bg-accent hover:text-accent-foreground'}`}
+                          >
+                            {showSrlSidebar ? 'Hide SRL' : 'SRL Coach'}
+                          </button>
                           <span className="hidden sm:inline text-[11px] text-muted-foreground bg-muted px-2 py-1 rounded">
                             {Math.round(chatWidth)}px
                           </span>
@@ -1189,6 +1196,7 @@ Here is the learner's question: ${message}`
                             isLoading={isLoading}
                             documentName={sources.length > 0 ? `${sources.length} sources` : 'No sources'}
                             onOpenDocument={() => setDocumentViewerOpen(true)}
+                            onSetGoalPrompt={() => setShowSrlSidebar(true)}
                           />
                         )}
                       </div>
@@ -1198,6 +1206,121 @@ Here is the learner's question: ${message}`
               </div>
             )}
 
+  {/* SRL Coach Sidebar */}
+  {showSrlSidebar && (
+    <div className="fixed top-24 right-4 w-[20rem] max-h-[80vh] bg-slate-950/95 border border-indigo-800/40 rounded-2xl shadow-2xl z-40 flex flex-col overflow-hidden backdrop-blur-sm">
+      <div className="px-4 py-3 border-b border-indigo-800/40 bg-indigo-900/40 flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-indigo-100">SRL Coach</h3>
+          <p className="text-[11px] text-indigo-200/80">Self-regulated learning assistant</p>
+        </div>
+        <button
+          onClick={() => setShowSrlSidebar(false)}
+          className="inline-flex items-center justify-center rounded-md h-8 w-8 text-indigo-200 hover:bg-indigo-800/40 transition-colors"
+          aria-label="Close SRL Coach"
+        >
+          ✕
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+        <section className="bg-indigo-950/60 border border-indigo-800/30 rounded-xl p-3 space-y-2">
+          <header className="flex items-center justify-between text-indigo-100">
+            <h4 className="text-xs font-semibold">Goal Setting</h4>
+            <span className="text-[10px] bg-indigo-700/40 px-2 py-0.5 rounded-full">Start here</span>
+          </header>
+          <p className="text-[11px] text-indigo-200/80">
+            Craft a SMART chemistry goal with the AI. Mention molecules or topics you want to master, and the assistant will suggest a tailored plan.
+          </p>
+          <button
+            onClick={() => handleSendMessage('Help me set a SMART goal for this chemistry session. My focus is...')}
+            className="w-full text-[11px] bg-indigo-700/30 hover:bg-indigo-600/40 text-indigo-100 border border-indigo-600/40 rounded-md py-1.5 transition-colors"
+          >
+            Ask AI to shape a SMART goal
+          </button>
+        </section>
+
+        <section className="bg-indigo-950/60 border border-indigo-800/30 rounded-xl p-3 space-y-2">
+          <header className="flex items-center justify-between text-indigo-100">
+            <h4 className="text-xs font-semibold">Planning Pathways</h4>
+            <span className="text-[10px] bg-indigo-700/40 px-2 py-0.5 rounded-full">Next</span>
+          </header>
+          <p className="text-[11px] text-indigo-200/80">
+            Let the assistant outline a step-by-step journey through MolView, NMRium, quizzes, or simulations based on your goal.
+          </p>
+          <div className="grid grid-cols-2 gap-2 text-[11px]">
+            <button
+              onClick={() => handleSendMessage('Create a study pathway using MolView and NMRium for understanding benzene. Include steps and resources.')}
+              className="bg-indigo-700/20 hover:bg-indigo-600/30 text-indigo-100 border border-indigo-600/30 rounded-md py-1.5 px-2 transition-colors"
+            >
+              Plan with MolView + NMR
+            </button>
+            <button
+              onClick={() => handleSendMessage('Recommend a learning plan that includes quizzes and reaction simulations for alkene mechanisms.')}
+              className="bg-indigo-700/20 hover:bg-indigo-600/30 text-indigo-100 border border-indigo-600/30 rounded-md py-1.5 px-2 transition-colors"
+            >
+              Plan with quizzes + sims
+            </button>
+          </div>
+        </section>
+
+        <section className="bg-indigo-950/60 border border-indigo-800/30 rounded-xl p-3 space-y-2">
+          <header className="flex items-center justify-between text-indigo-100">
+            <h4 className="text-xs font-semibold">Self-Monitoring</h4>
+            <span className="text-[10px] bg-indigo-700/40 px-2 py-0.5 rounded-full">Track</span>
+          </header>
+          <p className="text-[11px] text-indigo-200/80">
+            Log confidence checkpoints and let the assistant visualize your understanding for future sessions.
+          </p>
+          <button
+            onClick={() => handleSendMessage('Check in on my progress. Ask me to rate my understanding and summarize what I have improved so far.')}
+            className="w-full text-[11px] bg-indigo-700/30 hover:bg-indigo-600/40 text-indigo-100 border border-indigo-600/40 rounded-md py-1.5 transition-colors"
+          >
+            Start a progress checkpoint
+          </button>
+        </section>
+
+        <section className="bg-indigo-950/60 border border-indigo-800/30 rounded-xl p-3 space-y-2">
+          <header className="flex items-center justify-between text-indigo-100">
+            <h4 className="text-xs font-semibold">Reflection Prompts</h4>
+            <span className="text-[10px] bg-indigo-700/40 px-2 py-0.5 rounded-full">End session</span>
+          </header>
+          <p className="text-[11px] text-indigo-200/80">
+            Wrap up with guided questions. The assistant can summarize insights and link back to upcoming goals.
+          </p>
+          <button
+            onClick={() => handleSendMessage('Help me reflect on today’s session. Ask what I learned, surprises, and what to tackle next.')}
+            className="w-full text-[11px] bg-indigo-700/30 hover:bg-indigo-600/40 text-indigo-100 border border-indigo-600/40 rounded-md py-1.5 transition-colors"
+          >
+            Launch reflection dialogue
+          </button>
+        </section>
+
+        <section className="bg-indigo-950/60 border border-indigo-800/30 rounded-xl p-3 space-y-2">
+          <header className="flex items-center justify-between text-indigo-100">
+            <h4 className="text-xs font-semibold">Help-Seeking Signals</h4>
+            <span className="text-[10px] bg-indigo-700/40 px-2 py-0.5 rounded-full">Need boost</span>
+          </header>
+          <p className="text-[11px] text-indigo-200/80">
+            Signal the AI when you’re stuck. It can suggest hints, tool walkthroughs, or step-by-step scaffolds.
+          </p>
+          <div className="grid grid-cols-2 gap-2 text-[11px]">
+            <button
+              onClick={() => handleSendMessage('I am stuck on this problem. Offer me a hint, and if I still struggle, escalate to a full explanation using MolView data.')}
+              className="bg-indigo-700/20 hover:bg-indigo-600/30 text-indigo-100 border border-indigo-600/30 rounded-md py-1.5 px-2 transition-colors"
+            >
+              Ask for graded hints
+            </button>
+            <button
+              onClick={() => handleSendMessage('Guide me through interpreting this NMR spectrum step-by-step. Check in after each peak.')}
+              className="bg-indigo-700/20 hover:bg-indigo-600/30 text-indigo-100 border border-indigo-600/30 rounded-md py-1.5 px-2 transition-colors"
+            >
+              Stepwise NMR support
+            </button>
+          </div>
+        </section>
+      </div>
+    </div>
+  )}
             {/* Study Tools Panel */}
             {showStudyToolsPanel && (
               <>
