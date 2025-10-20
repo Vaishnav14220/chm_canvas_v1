@@ -1136,38 +1136,62 @@ Here is the learner's question: ${message}`
 
             {/* AI Chat */}
             {showChatPanel && (
-              <div className="absolute inset-0 flex items-center justify-center z-30 pointer-events-none">
-                <div className="pointer-events-auto w-full max-w-[420px] px-4 sm:px-6">
-                  <div className="bg-card border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
-                    <div className="px-4 py-3 border-b border-border bg-muted/60 flex items-center justify-between">
-                      <div className="flex items-center space-x-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary">
-                          <MessageSquare className="h-4 w-4 text-primary-foreground" />
+              <div className="absolute inset-0 z-30 pointer-events-none">
+                <div
+                  className="absolute top-24 right-4 sm:right-6 pointer-events-auto"
+                  style={{
+                    width: Math.min(chatWidth, 420),
+                    maxWidth: 'min(92vw, 420px)'
+                  }}
+                >
+                  <div className="relative">
+                    <button
+                      className="hidden"
+                      aria-hidden
+                      tabIndex={-1}
+                    />
+                    <div
+                      className="absolute inset-y-4 -left-2 w-2 cursor-col-resize rounded-full bg-primary/20 hover:bg-primary/40 transition-colors"
+                      onMouseDown={(e) => handleMouseDown('chat', e)}
+                      title="Drag to resize chat"
+                    />
+                    <div className="bg-card border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[82vh]">
+                      <div className="px-4 py-3 border-b border-border bg-muted/70 flex items-center justify-between">
+                        <div className="flex items-center space-x-3">
+                          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary">
+                            <MessageSquare className="h-4 w-4 text-primary-foreground" />
+                          </div>
+                          <div>
+                            <h3 className="text-sm font-semibold">AI Chat</h3>
+                            <p className="text-xs text-muted-foreground">Reference answers while you work</p>
+                          </div>
                         </div>
-                        <div>
-                          <h3 className="text-sm font-semibold">AI Chat</h3>
-                          <p className="text-xs text-muted-foreground">Ask questions about chemistry</p>
+                        <div className="flex items-center gap-2">
+                          <span className="hidden sm:inline text-[11px] text-muted-foreground bg-muted px-2 py-1 rounded">
+                            {Math.round(chatWidth)}px
+                          </span>
+                          <button
+                            onClick={() => setShowChatPanel(false)}
+                            className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-8 w-8"
+                            aria-label="Close chat"
+                          >
+                            ✕
+                          </button>
                         </div>
                       </div>
-                      <button
-                        onClick={() => setShowChatPanel(false)}
-                        className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-8 w-8"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                    <div className="flex-1 min-h-0">
-                      {useLlamaChat ? (
-                        <LlamaChat onClose={() => setUseLlamaChat(false)} />
-                      ) : (
-                        <AIChat
-                          onSendMessage={handleSendMessage}
-                          interactions={interactions}
-                          isLoading={isLoading}
-                          documentName={sources.length > 0 ? `${sources.length} sources` : 'No sources'}
-                          onOpenDocument={() => setDocumentViewerOpen(true)}
-                        />
-                      )}
+                      <div className="flex-1 min-h-[240px]">
+                        {useLlamaChat ? (
+                          <LlamaChat onClose={() => setUseLlamaChat(false)} />
+                        ) : (
+                          <AIChat
+                            onSendMessage={handleSendMessage}
+                            interactions={interactions}
+                            isLoading={isLoading}
+                            documentName={sources.length > 0 ? `${sources.length} sources` : 'No sources'}
+                            onOpenDocument={() => setDocumentViewerOpen(true)}
+                          />
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
