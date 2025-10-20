@@ -314,13 +314,13 @@ export default function AIChat({ onSendMessage, interactions, isLoading, documen
           interactions.map((interaction, index) => (
             <div key={interaction.id} className="space-y-3 animate-slide-up" style={{ animationDelay: `${index * 0.1}s` }}>
               <div className="flex justify-end">
-                <div className="bg-gradient-to-br from-blue-600 to-indigo-600 text-white rounded-2xl rounded-tr-sm p-4 max-w-[80%] shadow-lg">
+                <div className="bg-gradient-to-br from-blue-600 to-indigo-600 text-white rounded-2xl rounded-tr-sm p-4 max-w-[75ch] shadow-lg break-words">
                   <p className="text-xs font-semibold mb-1 opacity-90">You</p>
                   <p className="text-sm">{interaction.prompt}</p>
                 </div>
               </div>
               <div className="flex justify-start">
-                <div className="bg-gray-800 rounded-2xl rounded-tl-sm p-4 max-w-[85%] shadow-md border border-gray-700 space-y-3">
+                <div className="bg-gray-800 rounded-2xl rounded-tl-sm p-4 max-w-[75ch] shadow-md border border-gray-700 space-y-3 break-words">
                   <div className="flex items-center gap-2">
                     <div className="bg-gradient-to-br from-blue-600/20 to-indigo-600/20 p-1.5 rounded-lg">
                       <Sparkles size={14} className="text-blue-400" />

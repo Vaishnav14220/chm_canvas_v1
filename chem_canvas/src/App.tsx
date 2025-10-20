@@ -69,6 +69,8 @@ const App: React.FC = () => {
   // Panel sizes and visibility
   const [sourcesWidth, setSourcesWidth] = useState(384);
   const [chatWidth, setChatWidth] = useState(320);
+  const CHAT_MIN_WIDTH = 280;
+  const CHAT_MAX_WIDTH = 520;
   const [studyToolsWidth, setStudyToolsWidth] = useState(320);
   const [showStudyToolsPanel, setShowStudyToolsPanel] = useState(false);
   const [showChatPanel, setShowChatPanel] = useState(false);
@@ -275,7 +277,8 @@ const App: React.FC = () => {
       // Since resize handle is on the left of chat panel, we add deltaX
       newWidth = Math.max(280, Math.min(800, resizeStartWidth + deltaX));
       console.log('Chat resize - Start:', resizeStartWidth, 'Delta:', deltaX, 'New:', newWidth);
-      setChatWidth(newWidth);
+      const boundedWidth = Math.max(CHAT_MIN_WIDTH, Math.min(CHAT_MAX_WIDTH, newWidth));
+      setChatWidth(boundedWidth);
     } else if (isResizing === 'studyTools') {
       newWidth = Math.max(250, Math.min(600, resizeStartWidth + deltaX));
       setStudyToolsWidth(newWidth);
@@ -1167,7 +1170,7 @@ Here is the learner's question: ${message}`
                       </button>
                     </div>
                   </div>
-                  <div className="flex-1">
+                  <div className="flex-1 min-w-[280px]">
                     <AIChat
                       onSendMessage={handleSendMessage}
                       interactions={interactions}
