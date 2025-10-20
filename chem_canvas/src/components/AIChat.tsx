@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Send, Loader2, Sparkles, FileText } from 'lucide-react';
+import { Send, Loader2, Sparkles, FileText, Copy } from 'lucide-react';
 import { AIInteraction } from '../types';
 import { useLLMOutput, type LLMOutputComponent } from '@llm-ui/react';
 import { markdownLookBack } from '@llm-ui/markdown';
@@ -220,8 +220,8 @@ export default function AIChat({ onSendMessage, interactions, isLoading, documen
                 </div>
               </div>
               <div className="flex justify-start">
-                <div className="bg-gray-800 rounded-2xl rounded-tl-sm p-4 max-w-[85%] shadow-md border border-gray-700">
-                  <div className="flex items-center gap-2 mb-3">
+                <div className="bg-gray-800 rounded-2xl rounded-tl-sm p-4 max-w-[85%] shadow-md border border-gray-700 space-y-3">
+                  <div className="flex items-center gap-2">
                     <div className="bg-gradient-to-br from-blue-600/20 to-indigo-600/20 p-1.5 rounded-lg">
                       <Sparkles size={14} className="text-blue-400" />
                     </div>
@@ -233,6 +233,38 @@ export default function AIChat({ onSendMessage, interactions, isLoading, documen
                       onCitationClick={onOpenDocument}
                     />
                   </div>
+                  {interaction.response && interaction.response.match(/(SMILES|Smiles|smiles)\s*:?(.*)/) && (
+                    <div className="bg-gray-900/80 border border-gray-700 rounded-xl p-3 space-y-2">
+                      <p className="text-xs font-semibold text-blue-300 flex items-center gap-1">
+                        Suggested SMILES
+                      </p>
+                      {interaction.response
+                        .split(/\n|<br\s*\/?>/)
+                        .map(line => line.trim())
+                        .filter(line => /(SMILES|Smiles|smiles)/.test(line))
+                        .map((line, idx) => {
+                          const match = line.match(/(SMILES|Smiles|smiles)\s*:?(.*)/);
+                          if (!match) return null;
+                          const smiles = match[2]?.trim();
+                          if (!smiles) return null;
+                          return (
+                            <div key={idx} className="flex items-center justify-between gap-2 bg-gray-800/70 rounded-lg px-3 py-2">
+                              <span className="text-xs font-mono text-gray-100 break-all">{smiles}</span>
+                              <button
+                                onClick={() => navigator.clipboard.writeText(smiles)}
+                                className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 bg-blue-900/30 hover:bg-blue-900/40 px-2 py-1 rounded-md transition-colors"
+                                title="Copy SMILES"
+                              >
+                                <Copy size={14} /> Copy
+                              </button>
+                            </div>
+                          );
+                        })
+                        .filter(Boolean as any)
+                      }
+                      <p className="text-[10px] text-gray-400">Copy the SMILES and paste it into NMRium's molecule input to visualize the structure.</p>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

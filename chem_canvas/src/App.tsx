@@ -20,6 +20,12 @@ import { loadSession, saveSession, getSessionStatus, extendSession } from './uti
 import * as geminiService from './services/geminiService';
 import ChemistryWidgetPanel from './components/ChemistryWidgetPanel';
 
+const NMR_ASSISTANT_PROMPT = `You are ChemAssist's NMR laboratory mentor embedded next to the NMRium spectrum viewer. Your job is to guide students through NMR data analysis, molecule preparation and interpretation. Always:
+• Explain steps clearly and reference relevant controls inside NMRium when appropriate.
+• Provide SMILES strings whenever asked for structures, together with short safety or usage notes.
+• Suggest best practices for importing JCAMP-DX files, peak picking, assignments, integrations and spectrum overlays.
+• Stay concise and student-friendly, but add detail if the learner asks for deeper explanations.`;
+
 const App: React.FC = () => {
   // Authentication state
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -55,8 +61,9 @@ const App: React.FC = () => {
   }>>([]);
   const [activeSourceType, setActiveSourceType] = useState<'document' | 'youtube' | 'weblink' | 'image' | 'paste'>('document');
   const [showStudyTools, setShowStudyTools] = useState(false);
-  const [interactions, setInteractions] = useState<any[]>([]);
+  const [interactions, setInteractions] = useState<AIInteraction[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isNmrAssistantActive, setIsNmrAssistantActive] = useState(false);
   
   // Panel sizes and visibility
   const [sourcesWidth, setSourcesWidth] = useState(384);
@@ -308,11 +315,11 @@ const App: React.FC = () => {
     alert('Settings saved successfully!');
   };
 
-  const handleSendMessage = async (message: string) => {
+const handleSendMessage = async (message: string) => {
     setIsLoading(true);
     
     // Add user message immediately
-    const userInteraction = { 
+    const userInteraction: AIInteraction = {
       id: Date.now().toString(),
       prompt: message,
       response: '', // Will be updated with AI response
@@ -335,7 +342,7 @@ const App: React.FC = () => {
       }
 
       // Build context from sources if available
-      let contextPrompt = '';
+let contextPrompt = '';
       if (sources.length > 0) {
         contextPrompt = '**Document Context:**\n';
         sources.forEach((source, index) => {
@@ -344,12 +351,18 @@ const App: React.FC = () => {
         contextPrompt += '\n**User Question:** ';
       }
 
-      const fullPrompt = contextPrompt + message;
+      const nmrGuidance = isNmrAssistantActive
+        ? `${NMR_ASSISTANT_PROMPT}
+
+Here is the learner's question: ${message}`
+        : message;
+
+      const fullPrompt = contextPrompt + nmrGuidance;
 
       // Call Gemini API
       const aiResponse = await geminiService.generateTextContent(fullPrompt);
       
-      const assistantInteraction = { 
+      const assistantInteraction: AIInteraction = {
         id: (Date.now() + 1).toString(),
         prompt: '',
         response: aiResponse,
@@ -503,7 +516,9 @@ const App: React.FC = () => {
               
               <button
                 onClick={() => {
-                  setShowNmrFullscreen(true);
+            setIsNmrAssistantActive(true);
+            setShowNmrFullscreen(true);
+            setShowChatPanel(true);
                 }}
                 className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-11 px-4"
               >
@@ -593,7 +608,7 @@ const App: React.FC = () => {
       {/* Fullscreen NMR viewer */}
       {showNmrFullscreen ? (
         <div className="flex flex-col h-[calc(100vh-5rem)]">
-          <div className="flex items-center justify-between bg-slate-900 border-b border-slate-800 px-6 py-3">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between bg-slate-900 border-b border-slate-800 px-4 md:px-6 py-3">
             <div>
               <h2 className="text-sm font-semibold text-white">NMRium Viewer (Fullscreen)</h2>
               <p className="text-xs text-slate-400">Embedded from the NFDI4Chem public instance.</p>
@@ -606,19 +621,48 @@ const App: React.FC = () => {
                 <LineChart className="h-4 w-4" /> Open in new tab
               </button>
               <button
-                onClick={() => setShowNmrFullscreen(false)}
+                onClick={() => {
+                  setShowNmrFullscreen(false);
+                  setIsNmrAssistantActive(false);
+                }}
                 className="inline-flex items-center gap-2 px-3 py-2 text-xs font-medium rounded bg-blue-600 text-white hover:bg-blue-500"
               >
                 Exit NMR View
               </button>
             </div>
           </div>
-          <iframe
-            title="nmrium-fullscreen"
-            src="https://nmrium.nmrxiv.org?workspace=default"
-            className="flex-1 w-full"
-            allowFullScreen
-          />
+          <div className="flex-1 w-full">
+            <iframe
+              title="nmrium-fullscreen"
+              src="https://nmrium.nmrxiv.org?workspace=default"
+              className="h-full w-full"
+              allowFullScreen
+            />
+          </div>
+          {showChatPanel && (
+            <div className="border-t border-slate-800">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between bg-slate-900 px-4 md:px-6 py-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-white">NMR Assistant</h3>
+                  <p className="text-xs text-slate-400">Guide, SMILES suggestions, and spectrum tips</p>
+                </div>
+                <button
+                  onClick={() => setShowChatPanel(false)}
+                  className="text-xs text-slate-300 bg-slate-800 hover:bg-slate-700 px-3 py-1 rounded-md"
+                >
+                  Close Chat
+                </button>
+              </div>
+              <div className="h-72 md:h-80 bg-slate-900 border-t border-slate-800">
+                <AIChat
+                  onSendMessage={handleSendMessage}
+                  interactions={interactions}
+                  isLoading={isLoading}
+                  documentName="NMRium Workspace"
+                />
+              </div>
+            </div>
+          )}
         </div>
       ) : (
       <div className="flex h-[calc(100vh-5rem)]">
@@ -1026,11 +1070,12 @@ const App: React.FC = () => {
               )}
               
               {/* Chat Start Button - Floating */}
-              {!showChatPanel && (
+              {!showChatPanel && !showNmrFullscreen && (
                 <div className="absolute top-4 right-4 z-10">
                   <button
                     onClick={() => {
                       console.log('Starting chat panel...');
+                      setIsNmrAssistantActive(false);
                       setShowChatPanel(true);
                     }}
                     className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-lg shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105"
