@@ -305,16 +305,18 @@ export default function AIChat({ onSendMessage, interactions, isLoading, documen
           )}
 
           <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              onClick={() => {
-                onSetGoalPrompt?.();
-                handleSend('Help me set a SMART chemistry goal for this session.');
-              }}
-              className="flex items-center gap-2 text-[11px] text-blue-200 bg-blue-900/40 border border-blue-700/40 rounded-lg px-3 py-1.5 hover:bg-blue-800/40 transition-colors"
-            >
-              <Sparkles size={14} className="text-blue-400" />
-              SMART Goal
-            </button>
+            {onSetGoalPrompt && (
+              <button
+                onClick={() => {
+                  onSetGoalPrompt?.();
+                  handleSend('Help me set a SMART chemistry goal for this session.');
+                }}
+                className="flex items-center gap-2 text-[11px] text-blue-200 bg-blue-900/40 border border-blue-700/40 rounded-lg px-3 py-1.5 hover:bg-blue-800/40 transition-colors"
+              >
+                <Sparkles size={14} className="text-blue-400" />
+                SMART Goal
+              </button>
+            )}
             <button
               onClick={() => handleSend('Outline a learning plan using my current goal and suggest checkpoints for monitoring progress.')}
               className="flex items-center gap-2 text-[11px] text-blue-200 bg-blue-900/40 border border-blue-700/40 rounded-lg px-3 py-1.5 hover:bg-blue-800/40 transition-colors"
