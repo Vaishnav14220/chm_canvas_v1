@@ -20,6 +20,10 @@ import { initializeFirebaseOnStartup } from './utils/initializeFirebase';
 import { loadSession, saveSession, getSessionStatus, extendSession } from './utils/sessionStorage';
 import * as geminiService from './services/geminiService';
 import ChemistryWidgetPanel from './components/ChemistryWidgetPanel';
+import SRLGoalSetting from './components/SRLGoalSetting';
+import SRLProgressTracking from './components/SRLProgressTracking';
+import SRLReflection from './components/SRLReflection';
+import SRLCoachPanel from './components/SRLCoachPanel';
 
 const NMR_ASSISTANT_PROMPT = `You are ChemAssist's NMR laboratory mentor embedded next to the NMRium spectrum viewer. Your job is to guide students through NMR data analysis, molecule preparation and interpretation. Always:
 • Explain steps clearly and reference relevant controls inside NMRium when appropriate.
@@ -81,6 +85,13 @@ const App: React.FC = () => {
   const [showChemistryPanel, setShowChemistryPanel] = useState(false);
   const [chemistryPanelInitialView, setChemistryPanelInitialView] = useState<'overview' | 'nmr'>('overview');
   const [showNmrFullscreen, setShowNmrFullscreen] = useState(false);
+  
+  // SRL Modal states
+  const [showSRLGoalSetting, setShowSRLGoalSetting] = useState(false);
+  const [showSRLProgressTracking, setShowSRLProgressTracking] = useState(false);
+  const [showSRLReflection, setShowSRLReflection] = useState(false);
+  const [currentSRLGoal, setCurrentSRLGoal] = useState<any>(null);
+  const [showSRLCoachFullscreen, setShowSRLCoachFullscreen] = useState(false);
   
   // Resize states
   const [isResizing, setIsResizing] = useState<'sources' | 'chat' | 'studyTools' | null>(null);
@@ -529,6 +540,17 @@ Here is the learner's question: ${message}`
               </button>
               
               <button
+                onClick={() => {
+                  setShowChatPanel(!showChatPanel);
+                  setUseLlamaChat(false);
+                }}
+                className={`inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 h-11 px-4 border ${showChatPanel ? 'bg-primary text-primary-foreground border-primary hover:bg-primary/90' : 'border-input bg-background hover:bg-accent hover:text-accent-foreground'}`}
+              >
+                <MessageSquare className="mr-2 h-5 w-5" />
+                {showChatPanel ? 'Hide Chat' : 'Start Chat'}
+              </button>
+              
+              <button
                 onClick={() => setShowLiveChat(!showLiveChat)}
                 className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-11 px-4"
               >
@@ -538,16 +560,12 @@ Here is the learner's question: ${message}`
               
               <button
                 onClick={() => {
-                  setShowSrlSidebar(prev => !prev);
-                  if (!showChatPanel) {
-                    setUseLlamaChat(false);
-                    setShowChatPanel(true);
-                  }
+                  setShowSRLCoachFullscreen(true);
                 }}
-                className={`inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 h-11 px-4 border ${showSrlSidebar ? 'bg-primary text-primary-foreground border-primary hover:bg-primary/90' : 'border-input bg-background hover:bg-accent hover:text-accent-foreground'}`}
+                className={`inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 h-11 px-4 border border-input bg-background hover:bg-accent hover:text-accent-foreground`}
               >
                 <Atom className="mr-2 h-5 w-5" />
-                {showSrlSidebar ? 'Hide SRL Coach' : 'SRL Coach'}
+                SRL Coach
               </button>
 
               <button
@@ -1115,7 +1133,7 @@ Here is the learner's question: ${message}`
           {/* Canvas, Chat, and Study Tools */}
           <div className="flex-1 flex">
             {/* Canvas */}
-            <div className="flex-1 relative">
+            <div className={`${showChatPanel ? 'flex-1' : 'flex-1'} relative`}>
               {isMolecularMode ? (
                 <MoldrawEmbed />
               ) : (
@@ -1148,29 +1166,26 @@ Here is the learner's question: ${message}`
               
             </div>
 
+            {/* Resize Handle for Chat */}
+            {showChatPanel && (
+              <div
+                className="w-2 bg-muted hover:bg-primary/50 cursor-col-resize transition-colors border-l border-border"
+                onMouseDown={(e) => handleMouseDown('chat', e)}
+              />
+            )}
 
             {/* AI Chat */}
             {showChatPanel && (
-              <div className="absolute inset-0 z-30 pointer-events-none">
+              <div className="flex-1 flex flex-col min-w-0">
                 <div
-                  className={`absolute top-24 ${showSrlSidebar ? 'right-[22rem]' : 'right-4 sm:right-6'} pointer-events-auto transition-all duration-200`}
+                  className="flex flex-col h-full"
                   style={{
                     width: Math.min(chatWidth, 420),
                     maxWidth: 'min(92vw, 420px)'
                   }}
                 >
-                  <div className="relative">
-                    <button
-                      className="hidden"
-                      aria-hidden
-                      tabIndex={-1}
-                    />
-                    <div
-                      className="absolute inset-y-4 -left-2 w-2 cursor-col-resize rounded-full bg-primary/20 hover:bg-primary/40 transition-colors"
-                      onMouseDown={(e) => handleMouseDown('chat', e)}
-                      title="Drag to resize chat"
-                    />
-                    <div className="bg-card border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[82vh]">
+                  <div className="relative flex-1 flex flex-col">
+                    <div className="bg-card border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col h-full">
                       <div className="px-4 py-3 border-b border-border bg-muted/70 flex items-center justify-between">
                         <div className="flex items-center space-x-3">
                           <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary">
@@ -1246,10 +1261,13 @@ Here is the learner's question: ${message}`
             Craft a SMART chemistry goal with the AI. Mention molecules or topics you want to master, and the assistant will suggest a tailored plan.
           </p>
           <button
-            onClick={() => handleSendMessage('Help me set a SMART goal for this chemistry session. My focus is...')}
+            onClick={() => {
+              setShowSRLGoalSetting(true);
+              setShowChatPanel(true);
+            }}
             className="w-full text-[11px] bg-indigo-700/30 hover:bg-indigo-600/40 text-indigo-100 border border-indigo-600/40 rounded-md py-1.5 transition-colors"
           >
-            Ask AI to shape a SMART goal
+            Set SMART Goals
           </button>
         </section>
 
@@ -1286,10 +1304,13 @@ Here is the learner's question: ${message}`
             Log confidence checkpoints and let the assistant visualize your understanding for future sessions.
           </p>
           <button
-            onClick={() => handleSendMessage('Check in on my progress. Ask me to rate my understanding and summarize what I have improved so far.')}
+            onClick={() => {
+              setShowSRLProgressTracking(true);
+              setShowChatPanel(true);
+            }}
             className="w-full text-[11px] bg-indigo-700/30 hover:bg-indigo-600/40 text-indigo-100 border border-indigo-600/40 rounded-md py-1.5 transition-colors"
           >
-            Start a progress checkpoint
+            Track Progress
           </button>
         </section>
 
@@ -1302,10 +1323,13 @@ Here is the learner's question: ${message}`
             Wrap up with guided questions. The assistant can summarize insights and link back to upcoming goals.
           </p>
           <button
-            onClick={() => handleSendMessage('Help me reflect on today’s session. Ask what I learned, surprises, and what to tackle next.')}
+            onClick={() => {
+              setShowSRLReflection(true);
+              setShowChatPanel(true);
+            }}
             className="w-full text-[11px] bg-indigo-700/30 hover:bg-indigo-600/40 text-indigo-100 border border-indigo-600/40 rounded-md py-1.5 transition-colors"
           >
-            Launch reflection dialogue
+            Reflect & Learn
           </button>
         </section>
 
@@ -1315,7 +1339,7 @@ Here is the learner's question: ${message}`
             <span className="text-[10px] bg-indigo-700/40 px-2 py-0.5 rounded-full">Need boost</span>
           </header>
           <p className="text-[11px] text-indigo-200/80">
-            Signal the AI when you’re stuck. It can suggest hints, tool walkthroughs, or step-by-step scaffolds.
+            Signal the AI when you're stuck. It can suggest hints, tool walkthroughs, or step-by-step scaffolds.
           </p>
           <div className="grid grid-cols-2 gap-2 text-[11px]">
             <button
@@ -1601,8 +1625,156 @@ Here is the learner's question: ${message}`
           </div>
         </div>
       )}
+
+      {/* SRL Goal Setting Modal */}
+      {showSRLGoalSetting && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <SRLGoalSetting
+            onGoalCreated={handleSRLGoalCreated}
+            onClose={() => setShowSRLGoalSetting(false)}
+          />
+        </div>
+      )}
+
+      {/* SRL Progress Tracking Modal */}
+      {showSRLProgressTracking && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <SRLProgressTracking
+            currentGoal={currentSRLGoal}
+            onCheckpointCreated={handleSRLCheckpointCreated}
+            onClose={() => setShowSRLProgressTracking(false)}
+          />
+        </div>
+      )}
+
+      {/* SRL Reflection Modal */}
+      {showSRLReflection && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <SRLReflection
+            currentGoal={currentSRLGoal}
+            onReflectionCreated={handleSRLReflectionCreated}
+            onClose={() => setShowSRLReflection(false)}
+          />
+        </div>
+      )}
+
+      {/* Full-Screen SRL Coach Modal */}
+      {showSRLCoachFullscreen && (
+        <div className="flex h-[calc(100vh-5rem)] flex-col">
+          {/* Header */}
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between bg-gradient-to-r from-indigo-900 to-purple-900 border-b border-indigo-700 px-4 md:px-6 py-4">
+            <div>
+              <h2 className="text-lg font-bold text-white">Self-Regulated Learning Coach</h2>
+              <p className="text-xs text-indigo-200">Master chemistry through guided learning phases</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => {
+                  setShowChatPanel(prev => !prev);
+                  if (!showChatPanel) {
+                    setUseLlamaChat(false);
+                  }
+                }}
+                className={`inline-flex items-center gap-2 px-3 py-2 text-xs font-medium rounded transition-colors ${
+                  showChatPanel 
+                    ? 'bg-blue-600 text-white hover:bg-blue-500' 
+                    : 'bg-indigo-700 border border-indigo-600 text-indigo-100 hover:bg-indigo-600'
+                }`}
+              >
+                <MessageSquare className="h-4 w-4" />
+                {showChatPanel ? 'Hide AI Assistant' : 'Show AI Assistant'}
+              </button>
+              <button
+                onClick={() => {
+                  setShowSRLCoachFullscreen(false);
+                  setShowChatPanel(false);
+                }}
+                className="inline-flex items-center gap-2 px-3 py-2 text-xs font-medium rounded bg-indigo-600 text-white hover:bg-indigo-500 transition-colors"
+              >
+                Exit SRL Coach
+              </button>
+            </div>
+          </div>
+
+          {/* Main Content Area */}
+          <div className="flex flex-1 overflow-hidden">
+            {/* SRL Coach Panel - Left Side */}
+            <div className={`flex-1 overflow-auto ${showChatPanel ? 'lg:pr-0' : ''} bg-slate-950`}>
+              <div className="max-w-6xl mx-auto p-6 h-full">
+                <SRLCoachPanel
+                  onGoalSettingClick={() => {
+                    setShowSRLGoalSetting(true);
+                    setShowChatPanel(true);
+                  }}
+                  onPlanningClick={() => {
+                    handleSendMessage('Create a personalized study pathway for organic chemistry. Include MolView visualization steps, practice problems, and estimated time for each phase.');
+                    setShowChatPanel(true);
+                  }}
+                  onMonitoringClick={() => {
+                    setShowSRLProgressTracking(true);
+                    setShowChatPanel(true);
+                  }}
+                  onReflectionClick={() => {
+                    setShowSRLReflection(true);
+                    setShowChatPanel(true);
+                  }}
+                  onHelpSeekingClick={() => {
+                    handleSendMessage('I am struggling with this chemistry concept. Can you provide graduated help? Start with a hint, then explain if needed.');
+                    setShowChatPanel(true);
+                  }}
+                  onClose={() => setShowSRLCoachFullscreen(false)}
+                />
+              </div>
+            </div>
+
+            {/* AI Assistant - Right Side */}
+            {showChatPanel && (
+              <aside className="flex w-full max-w-md flex-col border-l border-indigo-700 bg-slate-900">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between px-4 py-3 border-b border-indigo-700">
+                  <div>
+                    <h3 className="text-sm font-semibold text-white">SRL AI Assistant</h3>
+                    <p className="text-xs text-slate-400">Personalized guidance and support</p>
+                  </div>
+                  <button
+                    onClick={() => setShowChatPanel(false)}
+                    className="text-xs text-slate-300 bg-slate-800 hover:bg-slate-700 px-3 py-1 rounded-md transition-colors"
+                  >
+                    Close
+                  </button>
+                </div>
+                <div className="flex-1 overflow-hidden bg-slate-900">
+                  <AIChat
+                    onSendMessage={handleSendMessage}
+                    interactions={interactions}
+                    isLoading={isLoading}
+                    documentName="SRL Coach Session"
+                  />
+                </div>
+              </aside>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
+
+  // SRL Modal handlers
+  const handleSRLGoalCreated = (goal: any) => {
+    setCurrentSRLGoal(goal);
+    setShowSRLGoalSetting(false);
+    // Auto-open progress tracking after goal creation
+    setShowSRLProgressTracking(true);
+  };
+
+  const handleSRLCheckpointCreated = (checkpoint: any) => {
+    console.log('Progress checkpoint created:', checkpoint);
+    // Could trigger reflection prompts or progress analysis
+  };
+
+  const handleSRLReflectionCreated = (reflection: any) => {
+    console.log('Reflection created:', reflection);
+    // Could trigger insights generation or goal updates
+  };
 };
 
 export default App;
