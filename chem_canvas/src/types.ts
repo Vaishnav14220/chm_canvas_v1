@@ -29,9 +29,12 @@ export interface CanvasState {
   backgroundColor: string;
 }
 
+export type InteractionMode = 'chat' | 'coach';
+
 export interface AIInteraction {
   id: string;
   prompt: string;
   response: string;
   timestamp: Date;
+  mode: InteractionMode;
 }
