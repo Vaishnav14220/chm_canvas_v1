@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { FileText, Settings, Search, Atom, Sparkles, Beaker, FlaskConical, Edit3, Palette, MessageSquare, BookOpen, User, Plus, File, Video, Globe, Upload, Clipboard, Headphones, LineChart, Target } from 'lucide-react';
 import Canvas from './components/Canvas';
-import Toolbar from './components/Toolbar';
 import AIChat from './components/AIChat';
 import LlamaChat from './components/LlamaChat';
 import LiveChat from './components/LiveChat';
@@ -1125,19 +1124,6 @@ Here is the learner's question: ${message}`
 
         {/* Main Content Area */}
         <div className="flex-1 flex flex-col bg-background/50">
-          {/* Toolbar */}
-          <div className="border-b border-border bg-muted/20 p-4">
-            <Toolbar
-              currentTool={currentTool}
-              onToolChange={setCurrentTool}
-              strokeWidth={strokeWidth}
-              onStrokeWidthChange={setStrokeWidth}
-              strokeColor={strokeColor}
-              onStrokeColorChange={setStrokeColor}
-              onOpenCalculator={handleOpenCalculator}
-            />
-          </div>
-
           {/* Canvas, Chat, and Study Tools */}
           <div className="flex-1 flex">
             {/* Canvas */}
