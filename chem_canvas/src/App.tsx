@@ -654,19 +654,23 @@ Here is the learner's question: ${message}`
 
       {/* Fullscreen NMR viewer */}
       {showSrlCoachWorkspace ? (
-        <SrlCoachWorkspace
-          interactions={interactions}
-          onSendMessage={handleSendMessage}
-          isLoading={coachLoading}
-          documentName={sources.length > 0 ? `${sources.length} sources` : 'No sources'}
-          onOpenDocument={() => setDocumentViewerOpen(true)}
-          onClose={() => {
-            setShowSrlCoachWorkspace(false);
-            setShowChatPanel(false);
-            setIsNmrAssistantActive(false);
-            setShowNmrAssistant(false);
-          }}
-        />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-xl p-8 max-w-md text-center shadow-xl">
+            <h2 className="text-xl font-bold text-gray-900 mb-2">🔧 SRL Coach Under Maintenance</h2>
+            <p className="text-gray-600 mb-4">
+              The SRL Coach is temporarily unavailable while we fix some issues. We'll have it back online soon!
+            </p>
+            <button
+              onClick={() => {
+                setShowSrlCoachWorkspace(false);
+                setShowChatPanel(false);
+              }}
+              className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-6 rounded-lg transition-colors"
+            >
+              Close
+            </button>
+          </div>
+        </div>
       ) : showNmrFullscreen ? (
         <div className="flex h-[calc(100vh-5rem)] flex-col">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between bg-slate-900 border-b border-slate-800 px-4 md:px-6 py-3">
