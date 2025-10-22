@@ -409,16 +409,13 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
 
   const sendCoachPrompt = async (phase: SrlPhase, prompt: string, note: string) => {
     if (!prompt.trim() || isLoading) {
-      console.log('[SRL Coach] Cannot send prompt - already loading or empty prompt');
       return;
     }
     try {
-      console.log('[SRL Coach] Sending prompt to Gemini API:', { phase, note });
       await onSendMessage(prompt, { mode: 'coach' });
       logCoachAction(phase, note);
-      console.log('[SRL Coach] Prompt sent successfully');
     } catch (error) {
-      console.error('[SRL Coach] Error:', error);
+      console.error('SRL coach prompt failed:', error);
     }
   };
 

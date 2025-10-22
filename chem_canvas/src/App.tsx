@@ -330,7 +330,6 @@ const App: React.FC = () => {
   ) => {
     const mode: InteractionMode = options?.mode ?? 'chat';
     const setLoading = mode === 'coach' ? setCoachLoading : setChatLoading;
-    console.log(`[API Handler] Starting message send in ${mode} mode`);
     setLoading(true);
     
     // Add user message immediately
@@ -342,12 +341,10 @@ const App: React.FC = () => {
       mode,
     };
     setInteractions(prev => [...prev, userInteraction]);
-    console.log(`[API Handler] User interaction added (${mode} mode)`);
     
     try {
       // Check if Gemini API is configured
       if (!geminiService.isGeminiInitialized()) {
-        console.warn('[API Handler] Gemini API not initialized');
         const errorResponse = { 
           id: (Date.now() + 1).toString(),
           prompt: '',
@@ -377,7 +374,6 @@ Here is the learner's question: ${message}`
         : message;
 
       const fullPrompt = contextPrompt + nmrGuidance;
-      console.log(`[API Handler] Full prompt prepared for ${mode} mode`);
 
       const assistantId = (Date.now() + 1).toString();
       const assistantInteraction: AIInteraction = {
@@ -388,7 +384,6 @@ Here is the learner's question: ${message}`
         mode,
       };
       setInteractions(prev => [...prev, assistantInteraction]);
-      console.log(`[API Handler] Calling Gemini API in ${mode} mode...`);
 
       const finalResponse = await geminiService.streamTextContent(fullPrompt, (chunk) => {
         if (!chunk) return;
@@ -402,14 +397,13 @@ Here is the learner's question: ${message}`
           return interaction;
         }));
       });
-      console.log(`[API Handler] Gemini API response received in ${mode} mode (${finalResponse.length} chars)`);
 
       setInteractions(prev => prev.map(interaction =>
         interaction.id === assistantId ? { ...interaction, response: finalResponse } : interaction
       ));
       
     } catch (error: any) {
-      console.error(`[API Handler] Error in ${mode} mode:`, error);
+      console.error('Gemini API error:', error);
       const errorResponse = { 
         id: (Date.now() + 1).toString(),
         prompt: '',
@@ -420,7 +414,6 @@ Here is the learner's question: ${message}`
       setInteractions(prev => [...prev, errorResponse]);
     } finally {
       setLoading(false);
-      console.log(`[API Handler] Message handling complete for ${mode} mode`);
     }
     
     if (sources.length > 0 && message.toLowerCase().includes('source')) {
@@ -661,42 +654,19 @@ Here is the learner's question: ${message}`
 
       {/* Fullscreen NMR viewer */}
       {showSrlCoachWorkspace ? (
-        <div className="fixed inset-0 z-50 flex flex-col bg-slate-950">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between bg-slate-900 border-b border-slate-800 px-4 md:px-6 py-3 shadow-lg">
-            <div>
-              <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
-                <Target className="h-4 w-4 text-blue-300" />
-                SRL Coach Workspace
-              </h2>
-              <p className="flex items-center gap-1 text-xs text-slate-400">
-                <Sparkles className="h-3 w-3 text-blue-300" />
-                Guided goal-setting, planning, monitoring, reflection, and help-seeking flows.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => {
-                  setShowSrlCoachWorkspace(false);
-                  setShowChatPanel(false);
-                  setIsNmrAssistantActive(false);
-                  setShowNmrAssistant(false);
-                }}
-                className="inline-flex items-center gap-2 rounded bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-500 transition-colors"
-              >
-                Exit SRL Coach
-              </button>
-            </div>
-          </div>
-          <div className="flex-1 overflow-auto bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-4 py-4 md:px-6 md:py-6">
-            <SrlCoach
-              onSendMessage={handleSendMessage}
-              interactions={interactions}
-              isLoading={coachLoading}
-              documentName={sources.length > 0 ? `${sources.length} sources` : 'No sources'}
-              onOpenDocument={() => setDocumentViewerOpen(true)}
-            />
-          </div>
-        </div>
+        <SrlCoachWorkspace
+          interactions={interactions}
+          onSendMessage={handleSendMessage}
+          isLoading={coachLoading}
+          documentName={sources.length > 0 ? `${sources.length} sources` : 'No sources'}
+          onOpenDocument={() => setDocumentViewerOpen(true)}
+          onClose={() => {
+            setShowSrlCoachWorkspace(false);
+            setShowChatPanel(false);
+            setIsNmrAssistantActive(false);
+            setShowNmrAssistant(false);
+          }}
+        />
       ) : showNmrFullscreen ? (
         <div className="flex h-[calc(100vh-5rem)] flex-col">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between bg-slate-900 border-b border-slate-800 px-4 md:px-6 py-3">
