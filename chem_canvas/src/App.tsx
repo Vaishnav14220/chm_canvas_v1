@@ -654,21 +654,40 @@ Here is the learner's question: ${message}`
 
       {/* Fullscreen NMR viewer */}
       {showSrlCoachWorkspace ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="bg-white rounded-xl p-8 max-w-md text-center shadow-xl">
-            <h2 className="text-xl font-bold text-gray-900 mb-2">🔧 SRL Coach Under Maintenance</h2>
-            <p className="text-gray-600 mb-4">
-              The SRL Coach is temporarily unavailable while we fix some issues. We'll have it back online soon!
-            </p>
-            <button
-              onClick={() => {
-                setShowSrlCoachWorkspace(false);
-                setShowChatPanel(false);
-              }}
-              className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-6 rounded-lg transition-colors"
-            >
-              Close
-            </button>
+        <div className="fixed inset-0 z-50 flex flex-col bg-slate-950">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between bg-slate-900 border-b border-slate-800 px-4 md:px-6 py-3 shadow-lg">
+            <div>
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
+                <Target className="h-4 w-4 text-blue-300" />
+                SRL Coach Workspace
+              </h2>
+              <p className="flex items-center gap-1 text-xs text-slate-400">
+                <Sparkles className="h-3 w-3 text-blue-300" />
+                Guided goal-setting, planning, monitoring, reflection, and help-seeking flows.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => {
+                  setShowSrlCoachWorkspace(false);
+                  setShowChatPanel(false);
+                  setIsNmrAssistantActive(false);
+                  setShowNmrAssistant(false);
+                }}
+                className="inline-flex items-center gap-2 rounded bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-500 transition-colors"
+              >
+                Exit SRL Coach
+              </button>
+            </div>
+          </div>
+          <div className="flex-1 overflow-auto bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-4 py-4 md:px-6 md:py-6">
+            <SrlCoach
+              onSendMessage={handleSendMessage}
+              interactions={interactions}
+              isLoading={coachLoading}
+              documentName={sources.length > 0 ? `${sources.length} sources` : 'No sources'}
+              onOpenDocument={() => setDocumentViewerOpen(true)}
+            />
           </div>
         </div>
       ) : showNmrFullscreen ? (
