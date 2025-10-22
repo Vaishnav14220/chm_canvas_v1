@@ -109,7 +109,7 @@ const SRL_MOMENTUM_LEVELS: SrlMomentumLevel[] = [
   {
     min: 55,
     label: 'Blaze',
-    vibe: 'You are in flow — tough problems are fair game right now.',
+    vibe: 'You are in flow ï¿½ tough problems are fair game right now.',
     gradient: 'from-purple-800 via-fuchsia-700 to-slate-950',
     icon: Flame
   },
@@ -145,19 +145,19 @@ const SRL_CHALLENGE_DECK: SrlChallenge[] = [
   {
     id: 'monitor-vibes',
     title: 'Confidence Pulse',
-    description: 'Rate your confidence before and after a problem set—spot the biggest delta.',
+    description: 'Rate your confidence before and after a problem setï¿½spot the biggest delta.',
     phase: 'monitor'
   },
   {
     id: 'reflect-story',
     title: 'Story Mode Reflection',
-    description: 'Write a 3-sentence comic strip of today’s study arc (setup, conflict, win).',
+    description: 'Write a 3-sentence comic strip of todayï¿½s study arc (setup, conflict, win).',
     phase: 'reflect'
   },
   {
     id: 'help-swap',
     title: 'Swap-a-Hint',
-    description: 'Draft a hint you’d give a peer on the same problem, then request one back from the AI.',
+    description: 'Draft a hint youï¿½d give a peer on the same problem, then request one back from the AI.',
     phase: 'help'
   },
   {
@@ -213,19 +213,19 @@ const SRL_HYPE_TIPS: Record<SrlPhase | 'wildcard', string[]> = {
   ],
   monitor: [
     'Overlay your feelings: rate confidence AND hype to see interesting mismatches.',
-    'Snapshot a mistake: jot one misstep and how you’ll trap it next time.'
+    'Snapshot a mistake: jot one misstep and how youï¿½ll trap it next time.'
   ],
   reflect: [
-    'Give future-you a breadcrumb—leave one thing you want to remember next time.',
+    'Give future-you a breadcrumbï¿½leave one thing you want to remember next time.',
     'Claim the win: name what skill level-up happened today.'
   ],
   help: [
-    'State the block clearly: “I get stuck when…” so the AI can laser-focus help.',
+    'State the block clearly: ï¿½I get stuck whenï¿½ï¿½ so the AI can laser-focus help.',
     'Try a tiered escalation: self-remedy ? AI hint ? peer check ? instructor ping.'
   ],
   wildcard: [
     'Mix it up: try a mini whiteboard sprint or record a 2-minute audio recap.',
-    'Gamify the next 10 minutes—treat it like a timed escape room puzzle.'
+    'Gamify the next 10 minutesï¿½treat it like a timed escape room puzzle.'
   ]
 };
 
@@ -409,13 +409,16 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
 
   const sendCoachPrompt = async (phase: SrlPhase, prompt: string, note: string) => {
     if (!prompt.trim() || isLoading) {
+      console.log('[SRL Coach] Cannot send prompt - already loading or empty prompt');
       return;
     }
     try {
+      console.log('[SRL Coach] Sending prompt to Gemini API:', { phase, note });
       await onSendMessage(prompt, { mode: 'coach' });
       logCoachAction(phase, note);
+      console.log('[SRL Coach] Prompt sent successfully');
     } catch (error) {
-      console.error('SRL coach prompt failed:', error);
+      console.error('[SRL Coach] Error:', error);
     }
   };
 
@@ -661,7 +664,7 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
                   {Math.min(999, Math.round(momentumScore * 1.4 + coachLog.length * 6 + phaseStreak * 12))}
                 </div>
                 <p className="text-xs text-white/70">
-                  Streak: <strong className="text-white">{phaseStreak}</strong> phases · Actions logged: <strong className="text-white">{coachLog.length}</strong>
+                  Streak: <strong className="text-white">{phaseStreak}</strong> phases ï¿½ Actions logged: <strong className="text-white">{coachLog.length}</strong>
                 </p>
                 <button
                   type="button"

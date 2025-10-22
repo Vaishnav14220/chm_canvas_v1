@@ -330,6 +330,7 @@ const App: React.FC = () => {
   ) => {
     const mode: InteractionMode = options?.mode ?? 'chat';
     const setLoading = mode === 'coach' ? setCoachLoading : setChatLoading;
+    console.log(`[API Handler] Starting message send in ${mode} mode`);
     setLoading(true);
     
     // Add user message immediately
@@ -341,10 +342,12 @@ const App: React.FC = () => {
       mode,
     };
     setInteractions(prev => [...prev, userInteraction]);
+    console.log(`[API Handler] User interaction added (${mode} mode)`);
     
     try {
       // Check if Gemini API is configured
       if (!geminiService.isGeminiInitialized()) {
+        console.warn('[API Handler] Gemini API not initialized');
         const errorResponse = { 
           id: (Date.now() + 1).toString(),
           prompt: '',
@@ -374,6 +377,7 @@ Here is the learner's question: ${message}`
         : message;
 
       const fullPrompt = contextPrompt + nmrGuidance;
+      console.log(`[API Handler] Full prompt prepared for ${mode} mode`);
 
       const assistantId = (Date.now() + 1).toString();
       const assistantInteraction: AIInteraction = {
@@ -384,6 +388,7 @@ Here is the learner's question: ${message}`
         mode,
       };
       setInteractions(prev => [...prev, assistantInteraction]);
+      console.log(`[API Handler] Calling Gemini API in ${mode} mode...`);
 
       const finalResponse = await geminiService.streamTextContent(fullPrompt, (chunk) => {
         if (!chunk) return;
@@ -397,13 +402,14 @@ Here is the learner's question: ${message}`
           return interaction;
         }));
       });
+      console.log(`[API Handler] Gemini API response received in ${mode} mode (${finalResponse.length} chars)`);
 
       setInteractions(prev => prev.map(interaction =>
         interaction.id === assistantId ? { ...interaction, response: finalResponse } : interaction
       ));
       
     } catch (error: any) {
-      console.error('Gemini API error:', error);
+      console.error(`[API Handler] Error in ${mode} mode:`, error);
       const errorResponse = { 
         id: (Date.now() + 1).toString(),
         prompt: '',
@@ -414,6 +420,7 @@ Here is the learner's question: ${message}`
       setInteractions(prev => [...prev, errorResponse]);
     } finally {
       setLoading(false);
+      console.log(`[API Handler] Message handling complete for ${mode} mode`);
     }
     
     if (sources.length > 0 && message.toLowerCase().includes('source')) {
