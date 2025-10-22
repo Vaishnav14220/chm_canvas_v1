@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
@@ -51,9 +51,45 @@ const verifySmilesList = async (candidates: string[]): Promise<string[]> => {
   return Array.from(new Set(verified));
 };
 
+const copyTextToClipboard = async (text: string): Promise<boolean> => {
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (error) {
+      console.warn('Clipboard API copy failed, attempting fallback:', error);
+    }
+  }
+
+  if (typeof document !== 'undefined') {
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.setAttribute('readonly', 'true');
+    textArea.style.position = 'fixed';
+    textArea.style.opacity = '0';
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+
+    try {
+      const succeeded = document.execCommand('copy');
+      return succeeded;
+    } catch (error) {
+      console.error('Fallback clipboard copy failed:', error);
+    } finally {
+      document.body.removeChild(textArea);
+    }
+  }
+
+  console.warn('Clipboard copy unavailable in this environment.');
+  return false;
+};
+
 export const VerifiedSmilesBlock = ({ sourceText }: { sourceText: string }) => {
   const [verified, setVerified] = useState<string[]>([]);
   const [isChecking, setIsChecking] = useState(false);
+  const [copiedSmiles, setCopiedSmiles] = useState<string | null>(null);
+  const resetCopyTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -83,6 +119,36 @@ export const VerifiedSmilesBlock = ({ sourceText }: { sourceText: string }) => {
     };
   }, [sourceText]);
 
+  useEffect(() => {
+    setCopiedSmiles(null);
+    if (resetCopyTimeoutRef.current !== null) {
+      window.clearTimeout(resetCopyTimeoutRef.current);
+      resetCopyTimeoutRef.current = null;
+    }
+  }, [verified]);
+
+  useEffect(() => {
+    return () => {
+      if (resetCopyTimeoutRef.current !== null) {
+        window.clearTimeout(resetCopyTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const handleCopy = useCallback(async (smiles: string) => {
+    const success = await copyTextToClipboard(smiles);
+    if (success) {
+      setCopiedSmiles(smiles);
+      if (resetCopyTimeoutRef.current !== null) {
+        window.clearTimeout(resetCopyTimeoutRef.current);
+      }
+      resetCopyTimeoutRef.current = window.setTimeout(() => {
+        setCopiedSmiles(null);
+        resetCopyTimeoutRef.current = null;
+      }, 2000);
+    }
+  }, []);
+
   if (!verified.length) {
     return null;
   }
@@ -96,11 +162,14 @@ export const VerifiedSmilesBlock = ({ sourceText }: { sourceText: string }) => {
         <div key={`${smiles}-${idx}`} className="flex items-center justify-between gap-2 bg-gray-800/70 rounded-lg px-3 py-2">
           <span className="text-xs font-mono text-gray-100 break-all">{smiles}</span>
           <button
-            onClick={() => navigator.clipboard.writeText(smiles)}
+            onClick={() => {
+              void handleCopy(smiles);
+            }}
             className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 bg-blue-900/30 hover:bg-blue-900/40 px-2 py-1 rounded-md transition-colors"
             title="Copy SMILES"
           >
-            <Copy size={14} /> Copy
+            <Copy size={14} />
+            {copiedSmiles === smiles ? 'Copied!' : 'Copy'}
           </button>
         </div>
       ))}
