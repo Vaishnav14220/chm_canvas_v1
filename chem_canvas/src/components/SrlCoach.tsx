@@ -20,15 +20,28 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import type { AIInteraction, InteractionMode } from '../types';
 import { LLMMessage, VerifiedSmilesBlock } from './LLMResponseBlocks';
-
-type SrlPhase = 'goal' | 'plan' | 'monitor' | 'reflect' | 'help';
-
-interface CoachLogEntry {
-  id: string;
-  phase: SrlPhase;
-  note: string;
-  timestamp: string;
-}
+import PriorKnowledgePanel from './PriorKnowledgePanel';
+import PlanningMindMap from './PlanningMindMap';
+import MonitoringDashboard from './MonitoringDashboard';
+import ReflectionTimeline from './ReflectionTimeline';
+import HelpHub from './HelpHub';
+import type {
+  AssessmentMode,
+  CoachLogEntry,
+  HelpChannel,
+  HelpLevel,
+  HelpRequest,
+  MonitoringCheckin,
+  PlanEdge,
+  PlanLevel,
+  PlanNode,
+  PlanScenario,
+  PriorKnowledgeSnapshot,
+  ReflectionEntry,
+  SrlPhase,
+  PersistedSrlCoachState,
+  SrlCoachMetrics
+} from '../types/srlCoach';
 
 const SRL_PHASES: Record<
   SrlPhase,
@@ -82,6 +95,42 @@ const SRL_PLAN_PREFERENCES = [
 const SRL_REFLECTION_EMOTIONS = ['Curious', 'Confident', 'Unsure', 'Stretched', 'Motivated'];
 
 const COACH_LOG_LIMIT = 8;
+const COACH_STATE_STORAGE_KEY = 'chemcanvas-srl-state-v1';
+const COACH_METRICS_STORAGE_KEY = 'chemcanvas-srl-metrics-v1';
+const COACH_PRIVACY_STORAGE_KEY = 'chemcanvas-srl-privacy-opt';
+
+const HELP_CHANNEL_LABEL: Record<HelpChannel, string> = {
+  ai: 'AI hint',
+  community: 'Community forum',
+  tutor: 'Tutor session'
+};
+
+const HELP_FORECAST_COPY: Record<HelpChannel, string> = {
+  ai: 'Expect a scaffolded hint within minutes. Reattempt once before escalating further.',
+  community: 'Peers usually respond within a study day. Share a screenshot or molecule ID to accelerate help.',
+  tutor: 'Book a 20-minute slot and bring one concrete question plus your attempted solution.'
+};
+
+const ASSESSMENT_MODE_LABEL: Record<AssessmentMode, string> = {
+  quiz: 'Adaptive quiz',
+  flashcards: 'Flash card sprint',
+  sketch: 'Interactive sketch'
+};
+
+const ASSESSMENT_HIGHLIGHTS: Record<AssessmentMode, { strengths: string[]; improvements: string[] }> = {
+  quiz: {
+    strengths: ['Quick recall on foundational reactions', 'Agile pattern spotting under timed pressure'],
+    improvements: ['Slow down on multi-step mechanisms', 'Revisit confuser questions with worked solutions']
+  },
+  flashcards: {
+    strengths: ['Strong concept tagging across topics', 'Consistent spaced repetition rhythm'],
+    improvements: ['Add more applied problem prompts', 'Mix in mechanism-oriented cards for balance']
+  },
+  sketch: {
+    strengths: ['Creative molecule representations', 'Clear sequencing of key reaction moves'],
+    improvements: ['Label intermediate states more clearly', 'Align sketches with reagent intent and outcomes']
+  }
+};
 
 interface SrlMomentumLevel {
   min: number;
@@ -109,7 +158,7 @@ const SRL_MOMENTUM_LEVELS: SrlMomentumLevel[] = [
   {
     min: 55,
     label: 'Blaze',
-    vibe: 'You are in flow � tough problems are fair game right now.',
+    vibe: 'You are in flow - tough problems are fair game right now.',
     gradient: 'from-purple-800 via-fuchsia-700 to-slate-950',
     icon: Flame
   },
@@ -145,19 +194,19 @@ const SRL_CHALLENGE_DECK: SrlChallenge[] = [
   {
     id: 'monitor-vibes',
     title: 'Confidence Pulse',
-    description: 'Rate your confidence before and after a problem set�spot the biggest delta.',
+    description: 'Rate your confidence before and after a problem set and spot the biggest delta.',
     phase: 'monitor'
   },
   {
     id: 'reflect-story',
     title: 'Story Mode Reflection',
-    description: 'Write a 3-sentence comic strip of today�s study arc (setup, conflict, win).',
+    description: "Write a 3-sentence comic strip of today's study arc (setup, conflict, win).",
     phase: 'reflect'
   },
   {
     id: 'help-swap',
     title: 'Swap-a-Hint',
-    description: 'Draft a hint you�d give a peer on the same problem, then request one back from the AI.',
+    description: "Draft a hint you'd give a peer on the same problem, then request one back from the AI.",
     phase: 'help'
   },
   {
@@ -208,24 +257,24 @@ const SRL_HYPE_TIPS: Record<SrlPhase | 'wildcard', string[]> = {
     'Add a reward: what will you do once the goal is done? Treat yourself!'
   ],
   plan: [
-    'Map a momentum ladder: easy task ? chewy task ? boss fight.',
+    'Map a momentum ladder: easy task -> chewy task -> boss fight.',
     'Swap mediums: mix diagrams, videos, and your own sketches to keep the plan fresh.'
   ],
   monitor: [
     'Overlay your feelings: rate confidence AND hype to see interesting mismatches.',
-    'Snapshot a mistake: jot one misstep and how you�ll trap it next time.'
+    "Snapshot a mistake: jot one misstep and how you'll trap it next time."
   ],
   reflect: [
-    'Give future-you a breadcrumb�leave one thing you want to remember next time.',
+    'Give future-you a breadcrumb - leave one thing you want to remember next time.',
     'Claim the win: name what skill level-up happened today.'
   ],
   help: [
-    'State the block clearly: �I get stuck when�� so the AI can laser-focus help.',
-    'Try a tiered escalation: self-remedy ? AI hint ? peer check ? instructor ping.'
+    'State the block clearly: "I get stuck when..." so the AI can laser-focus help.',
+    'Try a tiered escalation: self-remedy -> AI hint -> peer check -> instructor ping.'
   ],
   wildcard: [
     'Mix it up: try a mini whiteboard sprint or record a 2-minute audio recap.',
-    'Gamify the next 10 minutes�treat it like a timed escape room puzzle.'
+    'Gamify the next 10 minutes - treat it like a timed escape room puzzle.'
   ]
 };
 
@@ -235,6 +284,22 @@ const pickRandom = <T,>(items: T[]): T | null => {
   }
   const index = Math.floor(Math.random() * items.length);
   return items[index] ?? null;
+};
+
+const pickRandomSubset = <T,>(items: T[], count: number): T[] => {
+  if (count <= 0) {
+    return [];
+  }
+  const pool = [...items];
+  const selection: T[] = [];
+  while (pool.length && selection.length < count) {
+    const index = Math.floor(Math.random() * pool.length);
+    const [item] = pool.splice(index, 1);
+    if (item !== undefined) {
+      selection.push(item);
+    }
+  }
+  return selection;
 };
 
 const calculateMomentumStats = (log: CoachLogEntry[]) => {
@@ -349,6 +414,21 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
     const initialTip = pickRandom(SRL_HYPE_TIPS.goal);
     return initialTip ?? 'Ready to chart your next chemistry quest?';
   });
+  const [selectedAssessmentMode, setSelectedAssessmentMode] = useState<AssessmentMode | null>(null);
+  const [isAssessmentRunning, setIsAssessmentRunning] = useState(false);
+  const [priorKnowledgeSnapshots, setPriorKnowledgeSnapshots] = useState<PriorKnowledgeSnapshot[]>([]);
+  const [goalBuddySummary, setGoalBuddySummary] = useState('');
+  const [planNodesState, setPlanNodesState] = useState<PlanNode[]>([]);
+  const [planEdgesState, setPlanEdgesState] = useState<PlanEdge[]>([]);
+  const [planScenariosState, setPlanScenariosState] = useState<PlanScenario[]>([]);
+  const [monitoringCheckins, setMonitoringCheckins] = useState<MonitoringCheckin[]>([]);
+  const [experiencePoints, setExperiencePoints] = useState(0);
+  const [streakBonus, setStreakBonus] = useState(0);
+  const [reflectionEntries, setReflectionEntries] = useState<ReflectionEntry[]>([]);
+  const [helpRequests, setHelpRequests] = useState<HelpRequest[]>([]);
+  const [shareCoachData, setShareCoachData] = useState(true);
+  const [insightBulletin, setInsightBulletin] = useState<string | null>(null);
+  const [isArPreviewActive, setIsArPreviewActive] = useState(false);
 
   const coachInteractions = useMemo(
     () => interactions.filter((interaction) => interaction.mode === 'coach'),
@@ -356,6 +436,190 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
   );
 
   const outputEndRef = useRef<HTMLDivElement>(null);
+  const isHydratedRef = useRef(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const storedPreference = window.localStorage.getItem(COACH_PRIVACY_STORAGE_KEY);
+    if (storedPreference === 'false') {
+      setShareCoachData(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || isHydratedRef.current) {
+      return;
+    }
+
+    try {
+      const storedState = window.localStorage.getItem(COACH_STATE_STORAGE_KEY);
+      if (storedState) {
+        const parsed = JSON.parse(storedState) as Partial<PersistedSrlCoachState>;
+        if (parsed.activePhase) {
+          setActivePhase(parsed.activePhase);
+        }
+        setGoalTopic(parsed.goalTopic ?? '');
+        setGoalTimeframe(parsed.goalTimeframe ?? 'this week');
+        setPreferredTools(Array.isArray(parsed.preferredTools) ? parsed.preferredTools : ['molview', 'nmrium']);
+        if (Array.isArray(parsed.priorKnowledge)) {
+          setPriorKnowledgeSnapshots(parsed.priorKnowledge);
+        }
+        setGoalBuddySummary(parsed.goalBuddySummary ?? '');
+        setPlanFocus(parsed.planFocus ?? '');
+        setPlanLevel(parsed.planLevel ?? 'beginner');
+        setPlanPreference(parsed.planPreference ?? 'visual');
+        if (Array.isArray(parsed.planNodes)) {
+          setPlanNodesState(parsed.planNodes);
+        }
+        if (Array.isArray(parsed.planEdges)) {
+          setPlanEdgesState(parsed.planEdges);
+        }
+        if (Array.isArray(parsed.planScenarios)) {
+          setPlanScenariosState(parsed.planScenarios);
+        }
+        setMonitorFocus(parsed.monitorFocus ?? '');
+        setMonitorRating(typeof parsed.monitorRating === 'number' ? parsed.monitorRating : null);
+        setMonitorNotes(parsed.monitorNotes ?? '');
+        if (Array.isArray(parsed.monitoringCheckins)) {
+          setMonitoringCheckins(parsed.monitoringCheckins);
+        }
+        setReflectionNotes(parsed.reflectionNotes ?? '');
+        setReflectionEmotion(parsed.reflectionEmotion ?? SRL_REFLECTION_EMOTIONS[0]);
+        if (Array.isArray(parsed.reflectionEntries)) {
+          setReflectionEntries(parsed.reflectionEntries);
+        }
+        setHelpTopic(parsed.helpTopic ?? '');
+        setHelpAttempts(parsed.helpAttempts ?? 1);
+        setHelpLevel(parsed.helpLevel ?? 'hint');
+        if (Array.isArray(parsed.helpRequests)) {
+          setHelpRequests(parsed.helpRequests);
+        }
+        if (Array.isArray(parsed.coachLog)) {
+          setCoachLog(parsed.coachLog);
+        }
+      }
+
+      const storedMetrics = window.localStorage.getItem(COACH_METRICS_STORAGE_KEY);
+      if (storedMetrics) {
+        const parsedMetrics = JSON.parse(storedMetrics) as Partial<SrlCoachMetrics>;
+        if (typeof parsedMetrics.momentumScore === 'number') {
+          setMomentumScore(parsedMetrics.momentumScore);
+        }
+        if (typeof parsedMetrics.phaseStreak === 'number') {
+          setPhaseStreak(parsedMetrics.phaseStreak);
+        }
+        if (typeof parsedMetrics.coachEnergy === 'number') {
+          setCoachEnergy(parsedMetrics.coachEnergy);
+        }
+        if (Array.isArray(parsedMetrics.unlockedBadgeIds)) {
+          setUnlockedBadgeIds(parsedMetrics.unlockedBadgeIds);
+        }
+        if (typeof parsedMetrics.experiencePoints === 'number') {
+          setExperiencePoints(parsedMetrics.experiencePoints);
+        }
+        if (typeof parsedMetrics.streakBonus === 'number') {
+          setStreakBonus(parsedMetrics.streakBonus);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to hydrate SRL coach state', error);
+    } finally {
+      isHydratedRef.current = true;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    window.localStorage.setItem(COACH_PRIVACY_STORAGE_KEY, shareCoachData ? 'true' : 'false');
+
+    if (!shareCoachData) {
+      window.localStorage.removeItem(COACH_STATE_STORAGE_KEY);
+      window.localStorage.removeItem(COACH_METRICS_STORAGE_KEY);
+      return;
+    }
+
+    const statePayload: PersistedSrlCoachState = {
+      activePhase,
+      goalTopic,
+      goalTimeframe,
+      preferredTools,
+      priorKnowledge: priorKnowledgeSnapshots,
+      goalBuddySummary,
+      planFocus,
+      planLevel,
+      planPreference,
+      planNodes: planNodesState,
+      planEdges: planEdgesState,
+      planScenarios: planScenariosState,
+      monitorFocus,
+      monitorRating,
+      monitorNotes,
+      monitoringCheckins,
+      reflectionNotes,
+      reflectionEmotion,
+      reflectionEntries,
+      helpTopic,
+      helpAttempts,
+      helpLevel,
+      helpRequests,
+      coachLog,
+      updatedAt: new Date().toISOString()
+    };
+
+    const metricsPayload: SrlCoachMetrics = {
+      momentumScore,
+      phaseStreak,
+      coachEnergy,
+      unlockedBadgeIds,
+      experiencePoints,
+      streakBonus,
+      updatedAt: new Date().toISOString()
+    };
+
+    try {
+      window.localStorage.setItem(COACH_STATE_STORAGE_KEY, JSON.stringify(statePayload));
+      window.localStorage.setItem(COACH_METRICS_STORAGE_KEY, JSON.stringify(metricsPayload));
+    } catch (error) {
+      console.error('Failed to persist SRL coach state', error);
+    }
+  }, [
+    shareCoachData,
+    activePhase,
+    goalTopic,
+    goalTimeframe,
+    preferredTools,
+    priorKnowledgeSnapshots,
+    goalBuddySummary,
+    planFocus,
+    planLevel,
+    planPreference,
+    planNodesState,
+    planEdgesState,
+    planScenariosState,
+    monitorFocus,
+    monitorRating,
+    monitorNotes,
+    monitoringCheckins,
+    reflectionNotes,
+    reflectionEmotion,
+    reflectionEntries,
+    helpTopic,
+    helpAttempts,
+    helpLevel,
+    helpRequests,
+    coachLog,
+    momentumScore,
+    phaseStreak,
+    coachEnergy,
+    unlockedBadgeIds,
+    experiencePoints,
+    streakBonus
+  ]);
 
   useEffect(() => {
     const stats = calculateMomentumStats(coachLog);
@@ -363,6 +627,21 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
     setPhaseStreak(stats.longestStreak);
     setCoachEnergy(stats.energy);
     setUnlockedBadgeIds(deriveBadges(stats));
+    setStreakBonus(Math.min(40, stats.longestStreak * 6 + stats.uniquePhases.size * 4));
+  }, [coachLog]);
+
+  const learningJourney = useMemo(() => {
+    if (!coachLog.length) {
+      return (Object.keys(SRL_PHASES) as SrlPhase[]).map((phase) => ({ phase, count: 0 }));
+    }
+    const tally = new Map<SrlPhase, number>();
+    coachLog.forEach((entry) => {
+      tally.set(entry.phase, (tally.get(entry.phase) ?? 0) + 1);
+    });
+    return (Object.keys(SRL_PHASES) as SrlPhase[]).map((phase) => ({
+      phase,
+      count: tally.get(phase) ?? 0
+    }));
   }, [coachLog]);
 
   useEffect(() => {
@@ -407,13 +686,16 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
     });
   };
 
-  const sendCoachPrompt = async (phase: SrlPhase, prompt: string, note: string) => {
+  const sendCoachPrompt = async (phase: SrlPhase, prompt: string, note: string, xpReward = 0) => {
     if (!prompt.trim() || isLoading) {
       return;
     }
     try {
       await onSendMessage(prompt, { mode: 'coach' });
       logCoachAction(phase, note);
+      if (xpReward > 0) {
+        setExperiencePoints((prev) => Math.min(999, prev + xpReward));
+      }
     } catch (error) {
       console.error('SRL coach prompt failed:', error);
     }
@@ -432,15 +714,16 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
       ? selectedToolLabels.join(', ')
       : 'MolView visualizations, the NMR viewer, and adaptive chemistry quizzes';
 
-    const prompt = [
-      'You are ChemCanvas\'s self-regulated learning coach for chemistry students.',
-      `The learner wants support creating a SMART goal about "${trimmedTopic}".`,
-      `Draft a SMART goal that fits a ${goalTimeframe} horizon and weave in ChemCanvas features such as ${toolSummary}.`,
-      'Reference prior struggles only if relevant and keep the learner in the driver seat by offering choices, not mandates.',
-      'Close by asking the learner to confirm or tweak the goal.'
-    ].join(' ');
+  const prompt = [
+    'You are ChemCanvas\'s self-regulated learning coach for chemistry students.',
+    `The learner wants support creating a SMART goal about "${trimmedTopic}".`,
+    `Draft a SMART goal that fits a ${goalTimeframe} horizon and weave in ChemCanvas features such as ${toolSummary}.`,
+    'Reference prior struggles only if relevant and keep the learner in the driver seat by offering choices, not mandates.',
+    'Close by asking the learner to confirm or tweak the goal.'
+  ].join(' ');
 
-    void sendCoachPrompt('goal', prompt, `SMART goal drafted for ${trimmedTopic}`);
+    setInsightBulletin('SMART goal drafted - hop into planning to turn it into checkpoints.');
+    void sendCoachPrompt('goal', prompt, `SMART goal drafted for ${trimmedTopic}`, 28);
   };
 
   const handleBuildPlan = () => {
@@ -458,16 +741,17 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
       ? selectedToolLabels.join(', ')
       : 'MolView, NMR viewer, virtual lab activities, and quick AI check-ins';
 
-    const prompt = [
-      'Act as the ChemCanvas SRL planning coach.',
-      `Design a branching learning pathway for the topic "${focus}" tailored to a ${planLevel} learner.`,
-      `Prioritize a ${preferenceDescriptor}.`,
-      `Use ChemCanvas assets like ${toolSummary} and note when to leverage the AI chat versus hands-on tools.`,
-      'Include 3-4 checkpoints with self-monitoring cues and optional extension challenges.',
-      'End by inviting the learner to choose their next step.'
-    ].join(' ');
+  const prompt = [
+    'Act as the ChemCanvas SRL planning coach.',
+    `Design a branching learning pathway for the topic "${focus}" tailored to a ${planLevel} learner.`,
+    `Prioritize a ${preferenceDescriptor}.`,
+    `Use ChemCanvas assets like ${toolSummary} and note when to leverage the AI chat versus hands-on tools.`,
+    'Include 3-4 checkpoints with self-monitoring cues and optional extension challenges.',
+    'End by inviting the learner to choose their next step.'
+  ].join(' ');
 
-    void sendCoachPrompt('plan', prompt, `Adaptive pathway generated for ${focus}`);
+    setInsightBulletin(`Adaptive pathway ready - start activating milestones for ${focus}.`);
+    void sendCoachPrompt('plan', prompt, `Adaptive pathway generated for ${focus}`, 24);
   };
 
   const handleMonitoringFeedback = () => {
@@ -476,21 +760,23 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
       return;
     }
 
-    const prompt = [
-      'Respond as the ChemCanvas SRL self-monitoring coach.',
-      `The learner rated their understanding of "${trimmedFocus}" as ${monitorRating}/5.`,
-      `Notes from the learner: ${monitorNotes.trim() || 'No additional notes provided.'}`,
-      selectedToolLabels.length
-        ? `Preferred tools at the moment: ${selectedToolLabels.join(', ')}.`
-        : 'Use relevant ChemCanvas tools such as MolView, the NMR viewer, and AI-generated quizzes as needed.',
-      'Acknowledge their self-assessment, highlight what the rating suggests, and recommend one short action plus a follow-up checkpoint.',
-      'Close with a metacognitive question that encourages tracking progress without taking agency away.'
-    ].join(' ');
+  const prompt = [
+    'Respond as the ChemCanvas SRL self-monitoring coach.',
+    `The learner rated their understanding of "${trimmedFocus}" as ${monitorRating}/5.`,
+    `Notes from the learner: ${monitorNotes.trim() || 'No additional notes provided.'}`,
+    selectedToolLabels.length
+      ? `Preferred tools at the moment: ${selectedToolLabels.join(', ')}.`
+      : 'Use relevant ChemCanvas tools such as MolView, the NMR viewer, and AI-generated quizzes as needed.',
+    'Acknowledge their self-assessment, highlight what the rating suggests, and recommend one short action plus a follow-up checkpoint.',
+    'Close with a metacognitive question that encourages tracking progress without taking agency away.'
+  ].join(' ');
 
+    setInsightBulletin('Monitoring insight queued - check the dashboard for coach nudges.');
     void sendCoachPrompt(
       'monitor',
       prompt,
-      `Confidence check logged for ${trimmedFocus} (${monitorRating}/5)`
+      `Confidence check logged for ${trimmedFocus} (${monitorRating}/5)`,
+      18
     );
   };
 
@@ -499,15 +785,16 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
       return;
     }
 
-    const prompt = [
-      'You are wrapping up a chemistry study session as the ChemCanvas SRL reflection coach.',
-      `Learner emotion: ${reflectionEmotion}.`,
-      `Learner reflection: ${reflectionNotes.trim()}.`,
-      'Summarise key insights, connect them back to earlier goals or checkpoints when possible, and suggest one actionable carry-over goal for the next session.',
-      'Offer an optional advanced extension and remind the learner they can revisit their AI chat history for continuity.'
-    ].join(' ');
+  const prompt = [
+    'You are wrapping up a chemistry study session as the ChemCanvas SRL reflection coach.',
+    `Learner emotion: ${reflectionEmotion}.`,
+    `Learner reflection: ${reflectionNotes.trim()}.`,
+    'Summarise key insights, connect them back to earlier goals or checkpoints when possible, and suggest one actionable carry-over goal for the next session.',
+    'Offer an optional advanced extension and remind the learner they can revisit their AI chat history for continuity.'
+  ].join(' ');
 
-    void sendCoachPrompt('reflect', prompt, 'Reflection synthesized for current session');
+    setInsightBulletin('Reflection summary queued - capture a highlight reel if you want to share it forward.');
+    void sendCoachPrompt('reflect', prompt, 'Reflection synthesized for current session', 20);
   };
 
   const handleHelpRequest = () => {
@@ -540,7 +827,8 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
       'Keep the tone encouraging and emphasise autonomy by offering tiered support options.'
     ].join(' ');
 
-    void sendCoachPrompt('help', prompt, `Support requested for ${trimmedTopic}`);
+    setInsightBulletin('Coach support is on the way - review previous attempts while you wait.');
+    void sendCoachPrompt('help', prompt, `Support requested for ${trimmedTopic}`, 14);
   };
 
   const handleChallengeSpin = () => {
@@ -562,6 +850,276 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
     if (bonusTip) {
       setHypeTip(bonusTip);
     }
+  };
+
+  const handleRunAssessment = async () => {
+    if (!selectedAssessmentMode || isAssessmentRunning) {
+      return;
+    }
+
+    setIsAssessmentRunning(true);
+    setInsightBulletin(null);
+
+    const focus = goalTopic.trim() || planFocus.trim() || 'your current chemistry focus';
+    const modeLabel = ASSESSMENT_MODE_LABEL[selectedAssessmentMode];
+
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const highlightBank = ASSESSMENT_HIGHLIGHTS[selectedAssessmentMode];
+      const strengths = pickRandomSubset(highlightBank.strengths, 2);
+      const improvements = pickRandomSubset(highlightBank.improvements, 2);
+      const score = Math.max(40, Math.min(100, Math.round(55 + Math.random() * 40)));
+      const snapshot: PriorKnowledgeSnapshot = {
+        id: `snapshot-${Date.now()}`,
+        mode: selectedAssessmentMode,
+        score,
+        summary: `${modeLabel} baseline for ${focus} landed at ${score}% confidence.`,
+        strengths,
+        improvements,
+        aiRecommendation:
+          score >= 75
+            ? `Momentum is strong. Stretch with a virtual lab or advanced quiz on ${focus}.`
+            : `Rebuild fundamentals on ${focus} using MolView visuals and a short quiz loop.`,
+        completedAt: new Date().toISOString()
+      };
+      setPriorKnowledgeSnapshots((prev) => [snapshot, ...prev].slice(0, 5));
+      logCoachAction('goal', `${modeLabel} baseline captured (${score}%)`);
+      setExperiencePoints((prev) => Math.min(999, prev + 25));
+      setInsightBulletin(`Baseline captured - Goal Buddy now has fresh data for ${focus}.`);
+    } catch (error) {
+      console.error('Failed to run prior knowledge assessment', error);
+    } finally {
+      setIsAssessmentRunning(false);
+    }
+  };
+
+  const handleGenerateGoalBuddy = () => {
+    if (!shareCoachData) {
+      setGoalBuddySummary('Enable anonymous sharing in the privacy controls to unlock Goal Buddy insights.');
+      return;
+    }
+
+    if (!priorKnowledgeSnapshots.length) {
+      setGoalBuddySummary('Complete a baseline check-in to see how similar learners approached this goal.');
+      return;
+    }
+
+    const focus = goalTopic.trim() || planFocus.trim() || 'this chemistry focus';
+    const aggregates = priorKnowledgeSnapshots.reduce(
+      (acc, snapshot) => {
+        acc.total += snapshot.score ?? 60;
+        acc.count += 1;
+        acc.modeCounts[snapshot.mode] = (acc.modeCounts[snapshot.mode] ?? 0) + 1;
+        return acc;
+      },
+      { total: 0, count: 0, modeCounts: {} as Record<AssessmentMode, number> }
+    );
+    const averageScore = Math.round(aggregates.total / Math.max(1, aggregates.count));
+    const topMode = (Object.entries(aggregates.modeCounts).sort((a, b) => b[1] - a[1])[0]?.[0] as AssessmentMode) ?? 'quiz';
+    const topModeLabel = ASSESSMENT_MODE_LABEL[topMode];
+    const pacing =
+      averageScore >= 75 ? 'two focused sessions and a simulation recap' : 'three shorter check-ins spread across the week';
+
+    setGoalBuddySummary(
+      `Goal Buddy pulse: learners with a similar ${focus} goal average ${averageScore}% after ${pacing}. The most popular warm-up is the ${topModeLabel.toLowerCase()}; try pairing it with MolView before your next quiz.`
+    );
+    logCoachAction('goal', 'Goal Buddy insight refreshed');
+    setExperiencePoints((prev) => Math.min(999, prev + 10));
+  };
+
+  const handleAddPlanNode = () => {
+    const focus = (planFocus || goalTopic).trim() || 'ChemCanvas sprint';
+    setPlanNodesState((prev) => {
+      const newId = `plan-node-${Date.now()}`;
+      const toolLabel =
+        selectedToolLabels.length > 0
+          ? selectedToolLabels[prev.length % selectedToolLabels.length]
+          : 'Custom reflection';
+      const newNode: PlanNode = {
+        id: newId,
+        title: `Milestone ${prev.length + 1}`,
+        description: `Advance ${focus.toLowerCase()} with a ${toolLabel.toLowerCase()} block.`,
+        toolId: toolLabel,
+        durationMinutes: 20 + prev.length * 5,
+        status: 'pending',
+        resources: [`${toolLabel} walkthrough`, 'Log a confidence rating once finished']
+      };
+      setPlanEdgesState((prevEdges) => {
+        if (!prev.length) {
+          return prevEdges;
+        }
+        const lastNode = prev[prev.length - 1];
+        return [
+          ...prevEdges,
+          { id: `edge-${lastNode.id}-${newId}`, source: lastNode.id, target: newId, label: 'next step' }
+        ];
+      });
+      return [...prev, newNode];
+    });
+    setExperiencePoints((prev) => Math.min(999, prev + 15));
+    logCoachAction('plan', 'Added a new milestone to the roadmap');
+  };
+
+  const handleUpdatePlanNodeStatus = (nodeId: string, status: PlanNode['status']) => {
+    const existingNode = planNodesState.find((node) => node.id === nodeId);
+    if (!existingNode) {
+      return;
+    }
+    setPlanNodesState((prev) =>
+      prev.map((node) => (node.id === nodeId ? { ...node, status } : node))
+    );
+    logCoachAction('plan', `${existingNode.title} marked ${status.replace('-', ' ')}`);
+    if (existingNode.status !== 'completed' && status === 'completed') {
+      setExperiencePoints((prev) => Math.min(999, prev + 18));
+    }
+  };
+
+  const handleRunPlanSimulation = () => {
+    if (!planNodesState.length) {
+      setInsightBulletin('Add at least one milestone before running the what-if simulator.');
+      return;
+    }
+    const focus = (planFocus || goalTopic).trim() || 'your chemistry target';
+    const completed = planNodesState.filter((node) => node.status === 'completed').length;
+    const remaining = planNodesState.length - completed;
+    const scenario: PlanScenario = {
+      id: `scenario-${Date.now()}`,
+      title: remaining === 0 ? 'Victory Lap Projection' : 'Momentum vs Reset',
+      description:
+        remaining === 0
+          ? 'Everything is checked off! Channel the energy into an extension challenge or deep reflection.'
+          : `Staying consistent with ${planNodesState[0]?.title ?? 'your opening milestone'} keeps you on track while ${remaining} checkpoints remain.`,
+      impactSummary: `Prediction: maintain this cadence to boost confidence on ${focus} by about ${Math.min(25, 12 + completed * 5)}%.`,
+      createdAt: new Date().toISOString()
+    };
+    setPlanScenariosState((prev) => [scenario, ...prev].slice(0, 3));
+    logCoachAction('plan', 'Ran a what-if simulation');
+    setExperiencePoints((prev) => Math.min(999, prev + 12));
+    setInsightBulletin(
+      `Simulation suggests a ${Math.min(25, 12 + completed * 5)}% confidence lift if you honour the next milestone on ${focus}.`
+    );
+  };
+
+  const handleRequestCheckin = () => {
+    const focus = monitorFocus.trim() || goalTopic.trim() || 'General progress';
+    const rating = monitorRating ?? Math.max(1, Math.min(5, Math.round(coachEnergy / 20)));
+    const confidence = Math.max(1, Math.min(5, Math.round(rating + (coachEnergy - 50) / 25)));
+    const checkin: MonitoringCheckin = {
+      id: `checkin-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+      focus,
+      rating,
+      confidence,
+      note: monitorNotes.trim() || undefined,
+      aiNudge:
+        rating >= 4
+          ? `Momentum is high on ${focus}. Add a stretch question or simulate a trickier scenario.`
+          : `Take a breath and revisit the foundation of ${focus} with MolView or a quick quiz before retrying.`
+    };
+    setMonitoringCheckins((prev) => [checkin, ...prev].slice(0, 8));
+    logCoachAction('monitor', `Check-in logged for ${focus} (${rating}/5)`);
+    setExperiencePoints((prev) => Math.min(999, prev + 12));
+  };
+
+  const handleOpenMonitoringInsights = () => {
+    if (!monitoringCheckins.length) {
+      setInsightBulletin('Log a check-in to unlock your weekly insights.');
+      return;
+    }
+    const average =
+      Math.round(
+        (monitoringCheckins.reduce((total, entry) => total + entry.rating, 0) / monitoringCheckins.length) * 10
+      ) / 10;
+    const focusCounts = monitoringCheckins.reduce((acc, entry) => {
+      const key = entry.focus || 'General';
+      acc[key] = (acc[key] ?? 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    const topFocus = Object.entries(focusCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'your core concept';
+    setInsightBulletin(
+      `Weekly insights: average confidence ${average}/5. ${topFocus} has been your most tracked focus - plan a reflection or mini-quiz around it.`
+    );
+  };
+
+  const handleCreateReflectionEntry = () => {
+    const response = reflectionNotes.trim();
+    if (!response) {
+      setInsightBulletin('Jot a quick note above before logging it into your reflection timeline.');
+      return;
+    }
+    const entry: ReflectionEntry = {
+      id: `reflection-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+      prompt: `Reflection on ${goalTopic.trim() || 'today'}`,
+      response,
+      mood: reflectionEmotion
+    };
+    setReflectionEntries((prev) => [entry, ...prev]);
+    setReflectionNotes('');
+    logCoachAction('reflect', 'Reflection entry captured');
+    setExperiencePoints((prev) => Math.min(999, prev + 22));
+  };
+
+  const handleGenerateHighlightReel = () => {
+    if (!reflectionEntries.length) {
+      setInsightBulletin('Capture at least one reflection to build a highlight reel.');
+      return;
+    }
+    const highlightUrls = [
+      'https://chemcanvas.netlify.app/tools/molview',
+      'https://chemcanvas.netlify.app/tools/nmr-viewer'
+    ];
+    setReflectionEntries((prev) =>
+      prev.map((entry, index) =>
+        index === 0 ? { ...entry, highlightMediaUrls: highlightUrls } : entry
+      )
+    );
+    setExperiencePoints((prev) => Math.min(999, prev + 10));
+    setInsightBulletin('Highlight reel ready - your latest reflection now includes quick share links.');
+  };
+
+  const handleRequestHelp = (channel: HelpChannel) => {
+    const topic = helpTopic.trim() || goalTopic.trim() || 'General chemistry support';
+    const request: HelpRequest = {
+      id: `help-${Date.now()}`,
+      channel,
+      topic,
+      createdAt: new Date().toISOString(),
+      status: 'open',
+      aiForecast: HELP_FORECAST_COPY[channel]
+    };
+    setHelpRequests((prev) => [request, ...prev].slice(0, 6));
+    logCoachAction('help', `${HELP_CHANNEL_LABEL[channel]} request queued`);
+  };
+
+  const handleResolveHelpRequest = (requestId: string) => {
+    setHelpRequests((prev) =>
+      prev.map((request) => (request.id === requestId ? { ...request, status: 'resolved' } : request))
+    );
+    logCoachAction('help', 'Help request marked resolved');
+    setExperiencePoints((prev) => Math.min(999, prev + 10));
+  };
+
+  const handleHelpForecast = () => {
+    if (!helpRequests.length) {
+      setInsightBulletin('No active support threads. Log a new request to receive forecasts.');
+      return;
+    }
+
+    setHelpRequests((prev) =>
+      prev.map((request) =>
+        request.status === 'open'
+          ? { ...request, aiForecast: request.aiForecast ?? HELP_FORECAST_COPY[request.channel] }
+          : request
+      )
+    );
+
+    const oldestOpen = helpRequests.find((request) => request.status === 'open');
+    setInsightBulletin(
+      oldestOpen
+        ? `Forecast refreshed. Prioritise your ${HELP_CHANNEL_LABEL[oldestOpen.channel]} request about "${oldestOpen.topic}".`
+        : 'All support threads are resolved. Consider logging what you learned in a reflection.'
+    );
   };
   return (
     <div className="h-full w-full overflow-y-auto rounded-3xl border border-slate-800/60 bg-gray-900/95 p-4 md:p-6 shadow-2xl">
@@ -589,7 +1147,7 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
         </div>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-[2fr,1fr]">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
         <div className="flex flex-col gap-4">
           <div
             className={`relative rounded-2xl border border-blue-700/40 p-5 md:p-6 text-white shadow-lg bg-gradient-to-br ${
@@ -651,6 +1209,31 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
                     </div>
                   </div>
                 </div>
+                <label className="mt-4 inline-flex items-center gap-2 text-[11px] uppercase tracking-wide text-white/70">
+                  <input
+                    type="checkbox"
+                    checked={shareCoachData}
+                    onChange={(event) => setShareCoachData(event.target.checked)}
+                    className="h-4 w-4 rounded border-white/40 bg-transparent text-amber-200 focus:ring-amber-200"
+                  />
+                  Share anonymous progress for Goal Buddy insights
+                </label>
+                <div className="pt-3 space-y-2">
+                  <p className="text-[11px] uppercase tracking-wide text-white/70">Learning Journey Map</p>
+                  <div className="flex flex-wrap gap-2">
+                    {learningJourney.map(({ phase, count }) => (
+                      <span
+                        key={phase}
+                        className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] uppercase tracking-wide ${
+                          count > 0 ? 'border-white/35 bg-white/15 text-white' : 'border-white/15 text-white/60'
+                        }`}
+                      >
+                        {SRL_PHASES[phase].label}
+                        <span className="font-semibold text-amber-200">{count}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
               </div>
               <div className="space-y-3 rounded-2xl bg-white/10 p-4 backdrop-blur min-w-[220px]">
                 <div className="flex items-center justify-between text-sm font-semibold uppercase tracking-wide text-white/80">
@@ -658,10 +1241,13 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
                   <Trophy size={18} className="text-yellow-200" />
                 </div>
                 <div className="text-3xl font-bold text-yellow-100">
-                  {Math.min(999, Math.round(momentumScore * 1.4 + coachLog.length * 6 + phaseStreak * 12))}
+                  {Math.min(999, experiencePoints)}
                 </div>
                 <p className="text-xs text-white/70">
-                  Streak: <strong className="text-white">{phaseStreak}</strong> phases � Actions logged: <strong className="text-white">{coachLog.length}</strong>
+                  Streak: <strong className="text-white">{phaseStreak}</strong> phases | Actions logged: <strong className="text-white">{coachLog.length}</strong>
+                </p>
+                <p className="text-[11px] text-white/60">
+                  Streak bonus {streakBonus}% | Coach energy {Math.min(100, Math.round(coachEnergy))}%
                 </p>
                 <button
                   type="button"
@@ -673,6 +1259,11 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
                 </button>
               </div>
             </div>
+            {insightBulletin && (
+              <div className="mt-4 rounded-xl border border-white/20 bg-white/10 p-3 text-xs text-white/80">
+                {insightBulletin}
+              </div>
+            )}
           </div>
 
           <div className="bg-gray-800/70 border border-blue-700/40 rounded-xl p-4 md:p-5 space-y-5">
@@ -774,6 +1365,20 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
                           <Target size={16} />
                           Draft SMART Goal with AI
                         </button>
+                        <PriorKnowledgePanel
+                          selectedMode={selectedAssessmentMode}
+                          onSelectMode={setSelectedAssessmentMode}
+                          onLaunchAssessment={handleRunAssessment}
+                          onGenerateGoalBuddy={handleGenerateGoalBuddy}
+                          snapshots={priorKnowledgeSnapshots}
+                          isBusy={isLoading || isAssessmentRunning}
+                        />
+                        {goalBuddySummary ? (
+                          <div className="rounded-2xl border border-blue-500/30 bg-blue-500/10 p-3 text-xs text-blue-100">
+                            <p className="font-semibold uppercase tracking-wide text-blue-200">Goal Buddy Insight</p>
+                            <p className="mt-1 text-blue-100/80">{goalBuddySummary}</p>
+                          </div>
+                        ) : null}
                       </div>
                     );
                   case 'plan':
@@ -825,6 +1430,15 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
                           <Route size={16} />
                           Generate Adaptive Pathway
                         </button>
+                        <PlanningMindMap
+                          nodes={planNodesState}
+                          edges={planEdgesState}
+                          scenarios={planScenariosState}
+                          onAddStep={handleAddPlanNode}
+                          onUpdateStatus={handleUpdatePlanNodeStatus}
+                          onRunSimulation={handleRunPlanSimulation}
+                          isBusy={isLoading}
+                        />
                       </div>
                     );
                   case 'monitor':
@@ -879,6 +1493,17 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
                           <Activity size={16} />
                           Generate Monitoring Feedback
                         </button>
+                        <MonitoringDashboard
+                          momentumScore={momentumScore}
+                          phaseStreak={phaseStreak}
+                          coachEnergy={coachEnergy}
+                          experiencePoints={experiencePoints}
+                          streakBonus={streakBonus}
+                          checkins={monitoringCheckins}
+                          onRequestCheckin={handleRequestCheckin}
+                          onOpenInsights={handleOpenMonitoringInsights}
+                          isBusy={isLoading}
+                        />
                       </div>
                     );
                   case 'reflect':
@@ -917,6 +1542,12 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
                           <PenLine size={16} />
                           Synthesize Reflection
                         </button>
+                        <ReflectionTimeline
+                          entries={reflectionEntries}
+                          onCreateReflection={handleCreateReflectionEntry}
+                          onGenerateHighlightReel={handleGenerateHighlightReel}
+                          isBusy={isLoading}
+                        />
                       </div>
                     );
                   case 'help':
@@ -938,7 +1569,7 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
                             min={1}
                             value={helpAttempts}
                             onChange={(event) => setHelpAttempts(Math.max(1, Number(event.target.value) || 1))}
-                            className="mt-1 w-24 rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 focus:border-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-500/30"
+                            className="mt-1 w-24 rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 focus:border-rose-500 focus:outline-none focus:ring-2  focus:ring-rose-500/30"
                           />
                         </label>
                         <label className="flex flex-col gap-1 text-xs text-gray-400 uppercase tracking-wide">
@@ -962,6 +1593,13 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
                           <LifeBuoy size={16} />
                           Request Tiered Support
                         </button>
+                        <HelpHub
+                          requests={helpRequests}
+                          onRequestHelp={handleRequestHelp}
+                          onResolve={handleResolveHelpRequest}
+                          onForecastSupport={handleHelpForecast}
+                          isBusy={isLoading}
+                        />
                       </div>
                     );
                   default:
@@ -970,7 +1608,40 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
               })()}
             </div>
           </div>
-          <div className="bg-gray-800/70 border border-indigo-700/40 rounded-xl p-4 md:p-5 flex flex-col gap-3 min-h-[280px]">
+
+          {coachLog.length > 0 && (
+            <div className="bg-gray-800/70 border border-indigo-700/40 rounded-xl p-4 md:p-5">
+              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-gray-300">
+                <Clock size={14} className="text-indigo-300" />
+                Coach Activity Log
+              </div>
+              <div className="mt-3 space-y-3">
+                {coachLog.map((entry) => {
+                  const meta = SRL_PHASES[entry.phase];
+                  const Icon = meta.icon;
+                  return (
+                    <div
+                      key={entry.id}
+                      className="flex items-start gap-3 rounded-lg border border-indigo-700/30 bg-indigo-900/10 p-3 text-xs text-gray-200"
+                    >
+                      <Icon size={16} className={`${meta.accent} mt-[2px]`} />
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="font-semibold">{meta.label}</span>
+                          <span className="text-[11px] text-gray-400">{formatCoachTimestamp(entry.timestamp)}</span>
+                        </div>
+                        <p className="text-[11px] text-gray-300">{entry.note}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-4">
+          <div className="bg-gray-800/70 border border-indigo-700/40 rounded-xl p-4 md:p-5 flex flex-col gap-3 min-h-[280px] xl:max-h-[620px]">
             <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-indigo-200">
               <span className="flex items-center gap-2">
                 <Sparkles size={14} />
@@ -1023,37 +1694,6 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
             </div>
           </div>
 
-          {coachLog.length > 0 && (
-            <div className="bg-gray-800/70 border border-indigo-700/40 rounded-xl p-4 md:p-5">
-              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-gray-300">
-                <Clock size={14} className="text-indigo-300" />
-                Coach Activity Log
-              </div>
-              <div className="mt-3 space-y-3">
-                {coachLog.map((entry) => {
-                  const meta = SRL_PHASES[entry.phase];
-                  const Icon = meta.icon;
-                  return (
-                    <div
-                      key={entry.id}
-                      className="flex items-start gap-3 rounded-lg border border-indigo-700/30 bg-indigo-900/10 p-3 text-xs text-gray-200"
-                    >
-                      <Icon size={16} className={`${meta.accent} mt-[2px]`} />
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="font-semibold">{meta.label}</span>
-                          <span className="text-[11px] text-gray-400">{formatCoachTimestamp(entry.timestamp)}</span>
-                        </div>
-                        <p className="text-[11px] text-gray-300">{entry.note}</p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-        <aside className="space-y-4 overflow-y-auto pr-1">
           <div className="rounded-2xl border border-emerald-600/40 bg-emerald-900/20 p-4 shadow-lg">
             <div className="flex items-center justify-between">
               <div>
@@ -1081,6 +1721,42 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
             )}
           </div>
 
+          <div className="rounded-2xl border border-blue-500/40 bg-blue-900/15 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-blue-200">AR Molecule Preview</p>
+                <h4 className="text-sm font-semibold text-blue-100">Bring MolView into your space</h4>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsArPreviewActive((prev) => !prev)}
+                className="inline-flex items-center gap-1 rounded-lg border border-blue-400/60 bg-blue-500/20 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-blue-50 transition hover:bg-blue-500/30"
+              >
+                {isArPreviewActive ? 'Close' : 'Launch'}
+              </button>
+            </div>
+            <p className="text-xs text-blue-100">
+              Use your mobile device to project molecules onto your desk for deeper spatial reasoning while you study.
+            </p>
+            {isArPreviewActive ? (
+              <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 space-y-2 text-[11px] text-blue-100">
+                <p>1. Open the AR scene, then point your camera at a flat surface.</p>
+                <p>2. Explore bond angles, annotations, and align the model with your current goal.</p>
+                <a
+                  href="https://chemcanvas.netlify.app/tools/molview?mode=ar"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-2 rounded-md border border-blue-400/60 bg-blue-500/20 px-3 py-1 text-xs font-semibold text-blue-100 transition hover:bg-blue-500/30"
+                >
+                  Launch MolView AR Beta
+                </a>
+                <p className="text-blue-200/80">
+                  Tip: Capture a screenshot and drop it into your reflection timeline or share with your study group.
+                </p>
+              </div>
+            ) : null}
+          </div>
+
           <div className="rounded-2xl border border-amber-500/40 bg-amber-900/10 p-4 space-y-3">
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-amber-200">
               <Award size={16} />
@@ -1105,14 +1781,13 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
               ))}
             </div>
           </div>
-        </aside>
+        </div>
       </div>
     </div>
   );
 };
 
 export default SrlCoach;
-
 
 
 
