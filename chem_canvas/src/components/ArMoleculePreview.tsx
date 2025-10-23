@@ -221,9 +221,11 @@ const MoleculeStage: React.FC<{
   displayMode: DisplayMode;
   arSupported: boolean;
   onSessionStateChange?: (state: 'idle' | 'ar' | 'error') => void;
-}> = ({ molecule, loading, error, displayMode, arSupported, onSessionStateChange }) => {
+  onArButtonReady?: (button: HTMLElement | null) => void;
+}> = ({ molecule, loading, error, displayMode, arSupported, onSessionStateChange, onArButtonReady }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
+  const overlayButtonContainerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<ViewerReferences | null>(null);
   const [initialised, setInitialised] = useState(false);
 
@@ -281,14 +283,15 @@ const MoleculeStage: React.FC<{
       let arButton: HTMLElement | null = null;
 
       if (arSupported) {
+        const buttonContainer = overlayButtonContainerRef.current ?? overlayRef.current;
+
         arButton = ARButton.createButton(renderer, {
           requiredFeatures: [],
           optionalFeatures: ['dom-overlay'],
-          domOverlay: overlayRef.current
-            ? { root: overlayRef.current }
-            : undefined
+          domOverlay: overlayRef.current ? { root: overlayRef.current } : undefined
         });
 
+        arButton.textContent = 'Enter AR';
         arButton.classList.add(
           'inline-flex',
           'items-center',
@@ -297,7 +300,7 @@ const MoleculeStage: React.FC<{
           'rounded-lg',
           'border',
           'border-blue-400/60',
-          'bg-blue-600/50',
+          'bg-blue-600/70',
           'px-3',
           'py-2',
           'text-[11px]',
@@ -306,20 +309,28 @@ const MoleculeStage: React.FC<{
           'tracking-wide',
           'text-blue-50',
           'transition',
-          'hover:bg-blue-600/60'
+          'hover:bg-blue-600/80'
         );
+        arButton.style.pointerEvents = 'auto';
 
-        overlayRef.current?.appendChild(arButton);
+        buttonContainer?.appendChild(arButton);
+        onArButtonReady?.(arButton);
 
         renderer.xr.addEventListener('sessionstart', () => {
-          controls?.enabled && (controls.enabled = false);
+          if (controls?.enabled) {
+            controls.enabled = false;
+          }
           onSessionStateChange?.('ar');
         });
 
         renderer.xr.addEventListener('sessionend', () => {
-          controls?.enabled && (controls.enabled = true);
+          if (controls?.enabled) {
+            controls.enabled = true;
+          }
           onSessionStateChange?.('idle');
         });
+      } else {
+        onArButtonReady?.(null);
       }
 
       const handleResize = () => {
@@ -381,9 +392,10 @@ const MoleculeStage: React.FC<{
       viewer.scene.clear();
       viewer.renderer.domElement.remove();
       viewer.arButton?.remove();
+      onArButtonReady?.(null);
       viewerRef.current = null;
     };
-  }, [arSupported, onSessionStateChange]);
+  }, [arSupported, onArButtonReady, onSessionStateChange]);
 
   useEffect(() => {
     const viewer = viewerRef.current;
@@ -569,12 +581,12 @@ const MoleculeStage: React.FC<{
       <div className="relative h-72 overflow-hidden rounded-2xl border border-blue-500/40 bg-blue-950/40">
         <div ref={containerRef} className="h-full w-full" />
         <div ref={overlayRef} className="pointer-events-none absolute inset-0 flex flex-col justify-end p-3">
-          <div className="pointer-events-auto flex justify-end gap-2" />
+          <div ref={overlayButtonContainerRef} className="pointer-events-auto flex justify-end gap-2" />
         </div>
         {loading ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-blue-950/70 text-xs text-blue-100/80">
             <Loader2 className="h-5 w-5 animate-spin text-blue-200" />
-            Loading molecule…
+            Loading molecule...
           </div>
         ) : null}
         {!loading && error ? (
@@ -610,6 +622,18 @@ const ArMoleculePreview: React.FC<{ focusTopic?: string }> = ({ focusTopic }) =>
   const [moleculeData, setMoleculeData] = useState<ParsedMolecule | null>(null);
   const [arSupported, setArSupported] = useState<boolean | null>(null);
   const [sessionState, setSessionState] = useState<'idle' | 'ar' | 'error'>('idle');
+  const [arButtonElement, setArButtonElement] = useState<HTMLElement | null>(null);
+  const [requiresHttps, setRequiresHttps] = useState(false);
+
+  const handleEnterAr = () => {
+    arButtonElement?.click();
+  };
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setRequiresHttps(!window.isSecureContext);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -718,7 +742,7 @@ const ArMoleculePreview: React.FC<{ focusTopic?: string }> = ({ focusTopic }) =>
       id: `custom-${trimmedCid}`,
       name: customLabel.trim() || `PubChem CID ${trimmedCid}`,
       cid: trimmedCid,
-      formula: '—',
+      formula: 'n/a',
       highlight: 'Fetched directly from PubChem.',
       tags: ['custom']
     });
@@ -728,8 +752,40 @@ const ArMoleculePreview: React.FC<{ focusTopic?: string }> = ({ focusTopic }) =>
     arSupported === false
       ? 'AR requires a WebXR capable device (Chrome on Android or Safari on iOS 13+). You can still explore the molecule in 3D.'
       : sessionState === 'ar'
-        ? 'AR session active — walk around the molecule to inspect bond angles.'
-        : 'Tap “Enter AR” on supported devices to place the molecule in your space.';
+        ? 'AR session active - walk around the molecule to inspect bond angles.'
+        : 'Tap Start AR on supported devices to place the molecule in your space.';
+
+  const startArDisabled =
+    arSupported !== true ||
+    isLoading ||
+    Boolean(loadError) ||
+    !arButtonElement ||
+    requiresHttps;
+
+  const arStatusMessage = (() => {
+    if (arSupported === null) {
+      return 'Checking whether this browser supports WebXR...';
+    }
+    if (requiresHttps) {
+      return 'AR needs a secure (https) connection. Open ChemCanvas using https and try again.';
+    }
+    if (arSupported === false) {
+      return 'This device or browser does not expose WebXR immersive-ar. Try Chrome on Android or Safari on iOS 13+.';
+    }
+    if (isLoading) {
+      return 'Loading 3D structure...';
+    }
+    if (loadError) {
+      return 'Fix the molecule load error above, then try again.';
+    }
+    if (!arButtonElement) {
+      return 'Viewer initialising...';
+    }
+    if (sessionState === 'ar') {
+      return 'AR session active - move your device to explore the molecule.';
+    }
+    return 'Ready to launch AR. Position your device and tap Start AR when you are ready.';
+  })();
 
   return (
     <div className="space-y-3 text-[11px] text-blue-100">
@@ -856,7 +912,25 @@ const ArMoleculePreview: React.FC<{ focusTopic?: string }> = ({ focusTopic }) =>
         displayMode={displayMode}
         arSupported={arSupported ?? false}
         onSessionStateChange={setSessionState}
+        onArButtonReady={setArButtonElement}
       />
+
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-500/40 bg-blue-900/20 p-3 text-blue-100/80">
+        <span>{arStatusMessage}</span>
+        <button
+          type="button"
+          onClick={handleEnterAr}
+          disabled={startArDisabled}
+          className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide transition ${
+            startArDisabled
+              ? 'cursor-not-allowed border-blue-400/30 bg-blue-900/40 text-blue-200/60'
+              : 'border-blue-400/60 bg-blue-600/50 text-blue-50 hover:bg-blue-600/60'
+          }`}
+        >
+          <Smartphone size={14} />
+          Start AR
+        </button>
+      </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2 text-blue-200/70">
         <span>
