@@ -192,6 +192,230 @@ export const generateFormula = async (topic: string): Promise<string> => {
   }
 };
 
+export interface GeneratedQuizQuestion {
+  prompt: string;
+  options: string[];
+  correctOptionIndex: number;
+  explanation: string;
+}
+
+export interface QuizGenerationOptions {
+  topic: string;
+  count?: number;
+  difficulty?: 'introductory' | 'intermediate' | 'advanced';
+  focusAreas?: string[];
+  contextNotes?: string[];
+}
+
+interface FlashcardGenerationOptions {
+  topic: string;
+  count?: number;
+  learnerLevel?: 'beginner' | 'intermediate' | 'advanced';
+  emphasis?: string[];
+}
+
+export interface GeneratedFlashcard {
+  front: string;
+  back: string;
+  mnemonic?: string;
+  confidenceTag?: 'recall' | 'familiar' | 'stretch';
+  difficulty?: 'intro' | 'intermediate' | 'advanced';
+  tags?: string[];
+}
+
+export const generateFlashcardDeck = async ({
+  topic,
+  count = 6,
+  learnerLevel = 'intermediate',
+  emphasis = []
+}: FlashcardGenerationOptions): Promise<GeneratedFlashcard[]> => {
+  if (!genAI) {
+    throw new Error('Gemini API not initialized. Please provide an API key.');
+  }
+
+  try {
+    const modelName = await getAvailableModel(genAI);
+    const model = genAI.getGenerativeModel({ model: modelName });
+
+    const emphasisLine = emphasis.length ? `Prioritise these subtopics when possible: ${emphasis.join(', ')}.` : '';
+
+    const prompt = [
+      'You are a chemistry coach creating a tight flashcard sprint for spaced repetition.',
+      `Build ${count} flashcards about "${topic}" for a ${learnerLevel} learner.`,
+      emphasisLine,
+      'Return only valid JSON shaped exactly like:',
+      '{',
+      '  "cards": [',
+      '    {',
+      '      "front": "Concise prompt (<= 140 characters)",',
+      '      "back": "Clear explanation or answer (2-3 sentences max)",',
+      '      "mnemonic": "Optional vivid hook to remember the concept",',
+      '      "confidenceTag": "recall | familiar | stretch",',
+      '      "difficulty": "intro | intermediate | advanced",',
+      '      "tags": ["optional", "keywords"]',
+      '    }',
+      '  ]',
+      '}',
+      'Rules:',
+      '- Make fronts actionable and specific.',
+      '- Keep backs focused on the key idea or mechanism.',
+      '- Use a mix of recall, familiar, and stretch tags across the deck.',
+      '- Do not include any commentary outside the JSON.'
+    ].join('\n');
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const jsonPayload = extractJsonBlock(response.text());
+    const parsed = JSON.parse(jsonPayload);
+    const rawCards: any[] = Array.isArray(parsed?.cards) ? parsed.cards : Array.isArray(parsed) ? parsed : [];
+
+    const sanitized = rawCards
+      .map((item) => {
+        const front = String(item?.front ?? '').trim();
+        const back = String(item?.back ?? '').trim();
+        const mnemonic = String(item?.mnemonic ?? '').trim();
+        const confidenceTag = String(item?.confidenceTag ?? '').trim().toLowerCase();
+        const difficulty = String(item?.difficulty ?? '').trim().toLowerCase();
+        const tagsSource = Array.isArray(item?.tags) ? item.tags : [];
+        const tags = tagsSource
+          .map((tag: any) => String(tag ?? '').trim())
+          .filter((tag: string) => tag.length > 0)
+          .slice(0, 4);
+
+        if (!front || !back) {
+          return null;
+        }
+
+        return {
+          front,
+          back,
+          mnemonic: mnemonic || undefined,
+          confidenceTag:
+            confidenceTag === 'recall' || confidenceTag === 'familiar' || confidenceTag === 'stretch'
+              ? (confidenceTag as GeneratedFlashcard['confidenceTag'])
+              : undefined,
+          difficulty:
+            difficulty === 'intro' || difficulty === 'intermediate' || difficulty === 'advanced'
+              ? (difficulty as GeneratedFlashcard['difficulty'])
+              : undefined,
+          tags
+        } as GeneratedFlashcard;
+      })
+      .filter((card): card is GeneratedFlashcard => card !== null)
+      .slice(0, count);
+
+    if (!sanitized.length) {
+      throw new Error('Gemini returned an empty flashcard payload.');
+    }
+
+    return sanitized;
+  } catch (error) {
+    console.error('Error generating flashcard deck:', error);
+    throw error;
+  }
+};
+
+const extractJsonBlock = (rawText: string) => {
+  const trimmed = rawText.trim();
+  const fenceMatch = trimmed.match(/```(?:json)?([\s\S]*?)```/i);
+  if (fenceMatch) {
+    return fenceMatch[1].trim();
+  }
+  const jsonMatch = trimmed.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    return jsonMatch[0];
+  }
+  return trimmed;
+};
+
+export const generateAdaptiveQuizQuestions = async ({
+  topic,
+  count = 5,
+  difficulty = 'intermediate',
+  focusAreas = [],
+  contextNotes = []
+}: QuizGenerationOptions): Promise<GeneratedQuizQuestion[]> => {
+  if (!genAI) {
+    throw new Error('Gemini API not initialized. Please provide an API key.');
+  }
+
+  try {
+    const modelName = await getAvailableModel(genAI);
+    const model = genAI.getGenerativeModel({ model: modelName });
+
+    const focusLine = focusAreas.length ? `Focus on these subtopics or skills: ${focusAreas.join(', ')}.` : '';
+    const learnerContext = contextNotes.length ? `Learner context:\n- ${contextNotes.join('\n- ')}` : 'Learner context: none provided.';
+
+    const prompt = [
+      'You are an adaptive chemistry tutor creating a short diagnostic quiz.',
+      `Generate ${count} multiple-choice questions about "${topic}".`,
+      `Target difficulty: ${difficulty}.`,
+      focusLine,
+      learnerContext,
+      'Return **only** valid JSON using this schema:',
+      '{',
+      '  "questions": [',
+      '    {',
+      '      "prompt": "Question text",',
+      '      "options": ["Option A", "Option B", "Option C", "Option D"],',
+      '      "correctOptionIndex": 0,',
+      '      "explanation": "Brief justification"',
+      '    }',
+      '  ]',
+      '}',
+      'Rules:',
+      '- Provide exactly four options per question.',
+      '- Use 0-based index for the correct option.',
+      '- Explanations must be concise (≤ 2 sentences).',
+      '- Avoid duplicate prompts or options.',
+      '- Ensure options are plausible distractors, not obvious jokes.',
+      '- Do not include any text outside the JSON.'
+    ].join('\n');
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const jsonPayload = extractJsonBlock(response.text());
+
+    const parsed = JSON.parse(jsonPayload);
+    const rawQuestions: any[] = Array.isArray(parsed?.questions) ? parsed.questions : Array.isArray(parsed) ? parsed : [];
+
+    const sanitized = rawQuestions
+      .map((item, index) => {
+        const promptText = String(item?.prompt ?? '').trim();
+        const explanation = String(item?.explanation ?? '').trim();
+        const optionsSource = Array.isArray(item?.options) ? item.options : [];
+        const options = optionsSource
+          .map((option: any) => String(option ?? '').trim())
+          .filter((option: string) => option.length > 0)
+          .slice(0, 4);
+
+        const correctIndex = Number.isInteger(item?.correctOptionIndex) ? item.correctOptionIndex : -1;
+
+        if (!promptText || options.length !== 4 || correctIndex < 0 || correctIndex >= options.length) {
+          return null;
+        }
+
+        return {
+          prompt: promptText,
+          options,
+          correctOptionIndex: correctIndex,
+          explanation: explanation || 'Review the reasoning to understand why this option is correct.'
+        } as GeneratedQuizQuestion;
+      })
+      .filter((question): question is GeneratedQuizQuestion => question !== null)
+      .slice(0, count);
+
+    if (!sanitized.length) {
+      throw new Error('Gemini returned an empty quiz payload.');
+    }
+
+    return sanitized;
+  } catch (error) {
+    console.error('Error generating adaptive quiz questions:', error);
+    throw error;
+  }
+};
+
 export const compileDocumentOutput = async (blocks: any[]): Promise<string> => {
   if (!genAI) {
     throw new Error('Gemini API not initialized. Please provide an API key.');
@@ -282,4 +506,3 @@ if (savedApiKey) {
   console.log('3. Paste your API key and save');
   console.log('4. Start using Gemini 2.0 AI features! 🚀');
 }
-

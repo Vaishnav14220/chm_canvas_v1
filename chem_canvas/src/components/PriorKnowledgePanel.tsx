@@ -4,7 +4,7 @@ import { Sparkles, Target, ClipboardList, PenTool } from 'lucide-react';
 
 interface PriorKnowledgePanelProps {
   selectedMode: AssessmentMode | null;
-  onSelectMode: (mode: AssessmentMode) => void;
+  onSelectMode: (mode: AssessmentMode) => void | Promise<void>;
   onGenerateGoalBuddy: () => void;
   snapshots: PriorKnowledgeSnapshot[];
   isBusy: boolean;
@@ -58,7 +58,7 @@ const PriorKnowledgePanel = ({
             <button
               key={mode}
               type="button"
-              onClick={() => onSelectMode(mode)}
+              onClick={() => void onSelectMode(mode)}
               className={`flex flex-col items-start rounded-xl border p-3 transition ${
                 isActive
                   ? 'border-amber-400 bg-amber-500/20 text-amber-100 shadow-sm'

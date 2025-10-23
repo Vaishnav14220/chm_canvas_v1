@@ -6,6 +6,16 @@ export type HelpLevel = 'hint' | 'guided' | 'explanation';
 
 export type AssessmentMode = 'quiz' | 'flashcards' | 'sketch';
 
+export interface FlashcardItem {
+  id: string;
+  front: string;
+  back: string;
+  mnemonic?: string;
+  confidenceTag?: 'recall' | 'familiar' | 'stretch';
+  difficulty?: 'intro' | 'intermediate' | 'advanced';
+  tags?: string[];
+}
+
 export interface CoachLogEntry {
   id: string;
   phase: SrlPhase;

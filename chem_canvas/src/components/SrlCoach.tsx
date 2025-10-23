@@ -27,7 +27,9 @@ import MonitoringDashboard from './MonitoringDashboard';
 import ReflectionTimeline from './ReflectionTimeline';
 import HelpHub from './HelpHub';
 import ArMoleculePreview from './ArMoleculePreview';
+import FlashCardDeck from './FlashCardDeck';
 import { db } from '../firebase/config';
+import { generateFlashcardDeck } from '../services/geminiService';
 import type { UserProfile } from '../firebase/auth';
 import type {
   AssessmentMode,
@@ -40,6 +42,7 @@ import type {
   PlanLevel,
   PlanNode,
   PlanScenario,
+  FlashcardItem,
   PriorKnowledgeSnapshot,
   ReflectionEntry,
   SrlPhase,
@@ -540,7 +543,7 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
   const [goalTimeframe, setGoalTimeframe] = useState('this week');
   const [preferredTools, setPreferredTools] = useState<string[]>(['molview', 'nmrium']);
   const [planFocus, setPlanFocus] = useState('');
-  const [planLevel, setPlanLevel] = useState<'beginner' | 'intermediate' | 'advanced'>('beginner');
+  const [planLevel, setPlanLevel] = useState<PlanLevel>('beginner');
   const [planPreference, setPlanPreference] = useState<string>('visual');
   const [monitorFocus, setMonitorFocus] = useState('');
   const [monitorRating, setMonitorRating] = useState<number | null>(null);
@@ -549,7 +552,7 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
   const [reflectionEmotion, setReflectionEmotion] = useState<string>(SRL_REFLECTION_EMOTIONS[0]);
   const [helpTopic, setHelpTopic] = useState('');
   const [helpAttempts, setHelpAttempts] = useState(1);
-  const [helpLevel, setHelpLevel] = useState<'hint' | 'guided' | 'explanation'>('hint');
+  const [helpLevel, setHelpLevel] = useState<HelpLevel>('hint');
   const [coachLog, setCoachLog] = useState<CoachLogEntry[]>([]);
   const [momentumScore, setMomentumScore] = useState(0);
   const [phaseStreak, setPhaseStreak] = useState(0);
@@ -570,6 +573,12 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
   const [assessmentReview, setAssessmentReview] = useState<AssessmentReviewItem[] | null>(null);
   const [currentAssessmentChoice, setCurrentAssessmentChoice] = useState<number | null>(null);
   const [assessmentError, setAssessmentError] = useState<string | null>(null);
+  const [assessmentQuestions] = useState<Record<AssessmentMode, AssessmentQuestion[]>>(ASSESSMENT_QUESTIONS);
+  const [flashcardDeck, setFlashcardDeck] = useState<FlashcardItem[]>([]);
+  const [activeFlashcardIndex, setActiveFlashcardIndex] = useState(0);
+  const [isFlashcardFlipped, setIsFlashcardFlipped] = useState(false);
+  const [isGeneratingFlashcards, setIsGeneratingFlashcards] = useState(false);
+  const [flashcardError, setFlashcardError] = useState<string | null>(null);
   const [planNodesState, setPlanNodesState] = useState<PlanNode[]>([]);
   const [planEdgesState, setPlanEdgesState] = useState<PlanEdge[]>([]);
   const [planScenariosState, setPlanScenariosState] = useState<PlanScenario[]>([]);
@@ -646,6 +655,11 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
       const nextTip = pickRandom(SRL_HYPE_TIPS.goal);
       return nextTip ?? 'Ready to chart your next chemistry quest?';
     });
+    setFlashcardDeck([]);
+    setActiveFlashcardIndex(0);
+    setIsFlashcardFlipped(false);
+    setIsGeneratingFlashcards(false);
+    setFlashcardError(null);
   }, []);
 
   const applyPersistedState = useCallback((persisted?: Partial<PersistedSrlCoachState>) => {
@@ -999,19 +1013,19 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
     if (!assessmentState) {
       return null;
     }
-    return ASSESSMENT_QUESTIONS[assessmentState.mode] ?? null;
-  }, [assessmentState]);
+    return assessmentQuestions[assessmentState.mode] ?? null;
+  }, [assessmentState, assessmentQuestions]);
 
   const currentAssessmentQuestion = useMemo(() => {
     if (!assessmentState || assessmentState.completed) {
       return null;
     }
-    const questions = ASSESSMENT_QUESTIONS[assessmentState.mode];
+    const questions = assessmentQuestions[assessmentState.mode];
     if (!questions || questions.length === 0) {
       return null;
     }
     return questions[assessmentState.questionIndex] ?? null;
-  }, [assessmentState]);
+  }, [assessmentState, assessmentQuestions]);
 
   useEffect(() => {
     const pool = [
@@ -1042,20 +1056,87 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
     );
   };
 
-  const handleAssessmentModeSelect = (mode: AssessmentMode) => {
+  const launchFlashcardSprint = useCallback(async () => {
+    if (isGeneratingFlashcards) {
+      return;
+    }
+    const topic = goalTopic.trim() || planFocus.trim();
+    if (!topic) {
+      setFlashcardError('Add a focus topic before launching the flash card sprint.');
+      setInsightBulletin('Set a goal or planning focus to generate tailored flash cards.');
+      setIsAssessmentRunning(false);
+      return;
+    }
+
+    setIsGeneratingFlashcards(true);
+    setIsAssessmentRunning(true);
+    setFlashcardError(null);
+    setFlashcardDeck([]);
+    setActiveFlashcardIndex(0);
+    setIsFlashcardFlipped(false);
+
+    try {
+      const cards = await generateFlashcardDeck({
+        topic,
+        count: 6,
+        learnerLevel: planLevel,
+        emphasis: preferredTools.length ? preferredTools : [planPreference]
+      });
+
+      const augmented = cards.map((card, index) => ({
+        id: `flash-${Date.now()}-${index}`,
+        ...card
+      }));
+
+      setFlashcardDeck(augmented);
+      setInsightBulletin(`Flash card sprint ready. Flip through the ${topic} deck to warm up.`);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Unable to generate flash cards right now.';
+      setFlashcardError(message);
+      setInsightBulletin('Flash card sprint stalled. Update your Gemini key or try again later.');
+    } finally {
+      setIsGeneratingFlashcards(false);
+      setIsAssessmentRunning(false);
+    }
+  }, [goalTopic, planFocus, planLevel, planPreference, preferredTools, isGeneratingFlashcards]);
+
+  const handleAssessmentModeSelect = async (mode: AssessmentMode) => {
     if (!goalTopic.trim() && !planFocus.trim()) {
       setInsightBulletin('Add a focus area before running a baseline check.');
       return;
     }
-    const questions = ASSESSMENT_QUESTIONS[mode];
-    if (!questions || questions.length === 0) {
-      setInsightBulletin('Question bank for this mode is coming soon.');
-      return;
+    if (mode !== 'flashcards') {
+      const questions = assessmentQuestions[mode];
+      if (!questions || questions.length === 0) {
+        setInsightBulletin('Question bank for this mode is coming soon.');
+        return;
+      }
     }
-    if (isAssessmentRunning && assessmentState && !assessmentState.completed) {
+    if (mode !== 'flashcards' && isAssessmentRunning && assessmentState && !assessmentState.completed) {
       return;
     }
     setSelectedAssessmentMode(mode);
+    setAssessmentFeedback(null);
+    setAssessmentReview(null);
+    setCurrentAssessmentChoice(null);
+    setAssessmentError(null);
+    setAssessmentGoalHint('');
+    if (mode !== 'flashcards') {
+      setFlashcardDeck([]);
+      setActiveFlashcardIndex(0);
+      setIsFlashcardFlipped(false);
+      setFlashcardError(null);
+      setIsGeneratingFlashcards(false);
+    }
+
+    if (mode === 'flashcards') {
+      setAssessmentState(null);
+      await launchFlashcardSprint();
+      return;
+    }
+
+    const questions = assessmentQuestions[mode];
     const initialAnswers = Array(questions.length).fill(-1);
     setAssessmentState({
       mode,
@@ -1065,12 +1146,7 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
       completed: false,
       score: null
     });
-    setAssessmentFeedback(null);
-    setAssessmentReview(null);
-    setCurrentAssessmentChoice(null);
-    setAssessmentError(null);
     setIsAssessmentRunning(true);
-    setAssessmentGoalHint('');
     setInsightBulletin(`Baseline assessment started: ${ASSESSMENT_MODE_LABEL[mode]}.`);
   };
 
@@ -1091,6 +1167,11 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
     setAssessmentReview(null);
     setAssessmentGoalHint('');
     setIsAssessmentRunning(false);
+    setFlashcardDeck([]);
+    setActiveFlashcardIndex(0);
+    setIsFlashcardFlipped(false);
+    setIsGeneratingFlashcards(false);
+    setFlashcardError(null);
     setInsightBulletin('Baseline check cancelled.');
   };
 
@@ -1098,7 +1179,10 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
     if (!assessmentState || assessmentState.completed) {
       return;
     }
-    const questions = ASSESSMENT_QUESTIONS[assessmentState.mode];
+    if (assessmentState.mode === 'flashcards') {
+      return;
+    }
+    const questions = assessmentQuestions[assessmentState.mode];
     if (!questions || questions.length === 0) {
       return;
     }
@@ -1131,12 +1215,36 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
     }
   };
 
+  const handleFlashcardFlip = useCallback(() => {
+    setIsFlashcardFlipped((prev) => !prev);
+  }, []);
+
+  const handleFlashcardNext = useCallback(() => {
+    if (!flashcardDeck.length) {
+      return;
+    }
+    setActiveFlashcardIndex((prev) => Math.min(flashcardDeck.length - 1, prev + 1));
+    setIsFlashcardFlipped(false);
+  }, [flashcardDeck.length]);
+
+  const handleFlashcardPrevious = useCallback(() => {
+    if (!flashcardDeck.length) {
+      return;
+    }
+    setActiveFlashcardIndex((prev) => Math.max(0, prev - 1));
+    setIsFlashcardFlipped(false);
+  }, [flashcardDeck.length]);
+
+  const handleFlashcardRegenerate = useCallback(async () => {
+    await launchFlashcardSprint();
+  }, [launchFlashcardSprint]);
+
   const runAssessment = (mode: AssessmentMode, answersOverride?: number[]) => {
     if (!assessmentState || assessmentState.mode !== mode) {
       return;
     }
     const answers = answersOverride ?? assessmentState.answers;
-    const questions = ASSESSMENT_QUESTIONS[mode];
+    const questions = assessmentQuestions[mode];
     if (!questions || questions.length === 0) {
       return;
     }
@@ -1866,7 +1974,21 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
                           snapshots={priorKnowledgeSnapshots}
                           isBusy={isLoading || isAssessmentRunning}
                         />
-                        {assessmentState && !assessmentState.completed && currentAssessmentQuestion && currentAssessmentQuestions ? (
+                        {selectedAssessmentMode === 'flashcards' ? (
+                          <FlashCardDeck
+                            cards={flashcardDeck}
+                            activeIndex={activeFlashcardIndex}
+                            isFlipped={isFlashcardFlipped}
+                            isLoading={isGeneratingFlashcards}
+                            error={flashcardError}
+                            topic={goalTopic.trim() || planFocus.trim() || 'Chemistry focus'}
+                            onFlip={handleFlashcardFlip}
+                            onNext={handleFlashcardNext}
+                            onPrevious={handleFlashcardPrevious}
+                            onRegenerate={handleFlashcardRegenerate}
+                            onCancel={handleAssessmentCancel}
+                          />
+                        ) : assessmentState && !assessmentState.completed && currentAssessmentQuestion && currentAssessmentQuestions ? (
                           <div className="rounded-2xl border border-amber-500/30 bg-amber-900/15 p-4 space-y-4">
                             <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
                               <div>
@@ -1998,7 +2120,7 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
                             Learner Level
                             <select
                               value={planLevel}
-                              onChange={(event) => setPlanLevel(event.target.value as typeof planLevel)}
+                              onChange={(event) => setPlanLevel(event.target.value as PlanLevel)}
                               className="mt-1 rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
                             >
                               <option value="beginner">Beginner</option>
@@ -2176,7 +2298,7 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
                           Support Level
                           <select
                             value={helpLevel}
-                            onChange={(event) => setHelpLevel(event.target.value as typeof helpLevel)}
+                            onChange={(event) => setHelpLevel(event.target.value as HelpLevel)}
                             className="mt-1 rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 focus:border-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-500/30"
                           >
                             <option value="hint">Hint</option>
