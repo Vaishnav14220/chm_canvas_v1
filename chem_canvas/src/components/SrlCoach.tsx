@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Target,
   Route,
@@ -18,6 +18,7 @@ import {
   Wand
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import type { AIInteraction, InteractionMode } from '../types';
 import { LLMMessage, VerifiedSmilesBlock } from './LLMResponseBlocks';
 import PriorKnowledgePanel from './PriorKnowledgePanel';
@@ -25,6 +26,9 @@ import PlanningMindMap from './PlanningMindMap';
 import MonitoringDashboard from './MonitoringDashboard';
 import ReflectionTimeline from './ReflectionTimeline';
 import HelpHub from './HelpHub';
+import ArMoleculePreview from './ArMoleculePreview';
+import { db } from '../firebase/config';
+import type { UserProfile } from '../firebase/auth';
 import type {
   AssessmentMode,
   CoachLogEntry,
@@ -99,6 +103,8 @@ const COACH_STATE_STORAGE_KEY = 'chemcanvas-srl-state-v1';
 const COACH_METRICS_STORAGE_KEY = 'chemcanvas-srl-metrics-v1';
 const COACH_PRIVACY_STORAGE_KEY = 'chemcanvas-srl-privacy-opt';
 
+const getCoachDataDocRef = (userId: string) => doc(db, 'users', userId, 'srlCoachData', 'current');
+
 const HELP_CHANNEL_LABEL: Record<HelpChannel, string> = {
   ai: 'AI hint',
   community: 'Community forum',
@@ -130,6 +136,144 @@ const ASSESSMENT_HIGHLIGHTS: Record<AssessmentMode, { strengths: string[]; impro
     strengths: ['Creative molecule representations', 'Clear sequencing of key reaction moves'],
     improvements: ['Label intermediate states more clearly', 'Align sketches with reagent intent and outcomes']
   }
+};
+
+interface AssessmentQuestion {
+  id: string;
+  prompt: string;
+  options: string[];
+  correctOptionIndex: number;
+  explanation?: string;
+}
+
+interface AssessmentReviewItem {
+  id: string;
+  prompt: string;
+  chosenOption: string;
+  correctOption: string;
+  isCorrect: boolean;
+  explanation?: string;
+}
+
+interface AssessmentState {
+  mode: AssessmentMode;
+  questionIndex: number;
+  answers: number[];
+  startedAt: string;
+  completed: boolean;
+  score: number | null;
+}
+
+const ASSESSMENT_QUESTIONS: Record<AssessmentMode, AssessmentQuestion[]> = {
+  quiz: [
+    {
+      id: 'quiz-1',
+      prompt: 'Which reagent set converts an alkene into a vicinal diol via syn addition?',
+      options: [
+        'Cold KMnO4 followed by OH- (aq)',
+        'HBr with peroxide',
+        'O3 followed by Zn/H2O',
+        'BH3-THF followed by H2O2, OH-'
+      ],
+      correctOptionIndex: 0,
+      explanation: 'Cold, dilute KMnO4 produces a syn dihydroxylation giving a vicinal diol.'
+    },
+    {
+      id: 'quiz-2',
+      prompt: 'What does the integration of an NMR peak directly tell you?',
+      options: [
+        'Number of neighboring protons',
+        'Relative number of protons represented by the peak',
+        'Chemical environment of the protons',
+        'Shielding effect from electronegative atoms'
+      ],
+      correctOptionIndex: 1,
+      explanation: 'Integration reflects how many equivalent protons contribute to that signal.'
+    },
+    {
+      id: 'quiz-3',
+      prompt: 'During an SN1 reaction, which step determines the rate?',
+      options: [
+        'Nucleophilic attack',
+        'Leaving group departure forming a carbocation',
+        'Solvent rearrangement',
+        'Proton transfer to form the final product'
+      ],
+      correctOptionIndex: 1,
+      explanation: 'SN1 reactions are rate-limited by the formation of the carbocation intermediate.'
+    }
+  ],
+  flashcards: [
+    {
+      id: 'flash-1',
+      prompt: 'State Le Chatelier\'s principle in one sentence.',
+      options: [
+        'Equilibrium favors products when temperature decreases',
+        'A system at equilibrium shifts to counteract any imposed change',
+        'Reaction rates equal forward and reverse pathways',
+        'Catalysts change equilibrium positions'
+      ],
+      correctOptionIndex: 1,
+      explanation: 'Le Chatelier\'s principle states that a disturbed equilibrium shifts to oppose the disturbance.'
+    },
+    {
+      id: 'flash-2',
+      prompt: 'Which orbital interaction drives conjugation in a diene system?',
+      options: [
+        'Overlap of sp3 orbitals',
+        'Overlap of p orbitals creating a delocalised pi system',
+        'Overlap of sigma orbitals forming new sigma bonds',
+        'Interaction of s orbitals forming hydrogen bonds'
+      ],
+      correctOptionIndex: 1,
+      explanation: 'Conjugation arises from adjacent p orbital overlap creating delocalised pi bonding.'
+    },
+    {
+      id: 'flash-3',
+      prompt: 'What is the key feature of a buffer solution?',
+      options: [
+        'It contains a strong acid and strong base in equal amounts',
+        'It resists pH change when small amounts of acid or base are added',
+        'It completely neutralises any acid',
+        'It must be highly dilute to function'
+      ],
+      correctOptionIndex: 1,
+      explanation: 'Buffers resist pH change through a conjugate acid-base pair that neutralises additions.'
+    }
+  ],
+  sketch: [
+    {
+      id: 'sketch-1',
+      prompt: 'When sketching the chair conformations of cyclohexane, which positions alternate up/down around the ring?',
+      options: ['Axial positions', 'Equatorial positions', 'Both axial and equatorial', 'Neither - all are planar'],
+      correctOptionIndex: 0,
+      explanation: 'Axial positions alternate up and down, while equatorial positions lie roughly in the plane.'
+    },
+    {
+      id: 'sketch-2',
+      prompt: 'What must be conserved when sketching resonance structures?',
+      options: [
+        'Number of sigma bonds',
+        'Positions of all atoms',
+        'Formal charges on each atom',
+        'Total number of electrons and atom connectivity'
+      ],
+      correctOptionIndex: 3,
+      explanation: 'Resonance structures preserve atom connectivity and total electron count.'
+    },
+    {
+      id: 'sketch-3',
+      prompt: 'Which arrow describes electron flow in a curved-arrow mechanism?',
+      options: [
+        'From a positive centre toward electrons',
+        'From electron density (lone pair or bond) toward an electron-poor centre',
+        'From nucleus to nucleus',
+        'From empty orbitals to filled ones'
+      ],
+      correctOptionIndex: 1,
+      explanation: 'Curved arrows always start at electron density and point toward where electrons move.'
+    }
+  ]
 };
 
 interface SrlMomentumLevel {
@@ -380,6 +524,7 @@ interface SrlCoachProps {
   isLoading: boolean;
   documentName?: string;
   onOpenDocument?: () => void;
+  user?: UserProfile | null;
 }
 
 const SrlCoach: React.FC<SrlCoachProps> = ({
@@ -387,7 +532,8 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
   interactions,
   isLoading,
   documentName,
-  onOpenDocument
+  onOpenDocument,
+  user
 }) => {
   const [activePhase, setActivePhase] = useState<SrlPhase>('goal');
   const [goalTopic, setGoalTopic] = useState('');
@@ -418,6 +564,12 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
   const [isAssessmentRunning, setIsAssessmentRunning] = useState(false);
   const [priorKnowledgeSnapshots, setPriorKnowledgeSnapshots] = useState<PriorKnowledgeSnapshot[]>([]);
   const [goalBuddySummary, setGoalBuddySummary] = useState('');
+  const [assessmentGoalHint, setAssessmentGoalHint] = useState('');
+  const [assessmentState, setAssessmentState] = useState<AssessmentState | null>(null);
+  const [assessmentFeedback, setAssessmentFeedback] = useState<{ score: number; correct: number; total: number } | null>(null);
+  const [assessmentReview, setAssessmentReview] = useState<AssessmentReviewItem[] | null>(null);
+  const [currentAssessmentChoice, setCurrentAssessmentChoice] = useState<number | null>(null);
+  const [assessmentError, setAssessmentError] = useState<string | null>(null);
   const [planNodesState, setPlanNodesState] = useState<PlanNode[]>([]);
   const [planEdgesState, setPlanEdgesState] = useState<PlanEdge[]>([]);
   const [planScenariosState, setPlanScenariosState] = useState<PlanScenario[]>([]);
@@ -435,8 +587,152 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
     [interactions]
   );
 
+  const userId = user?.uid ?? null;
+  const stateStorageKey = useMemo(
+    () => (userId ? `${COACH_STATE_STORAGE_KEY}::${userId}` : COACH_STATE_STORAGE_KEY),
+    [userId]
+  );
+  const metricsStorageKey = useMemo(
+    () => (userId ? `${COACH_METRICS_STORAGE_KEY}::${userId}` : COACH_METRICS_STORAGE_KEY),
+    [userId]
+  );
+
   const outputEndRef = useRef<HTMLDivElement>(null);
-  const isHydratedRef = useRef(false);
+  const remoteSaveTimeoutRef = useRef<number | null>(null);
+
+  const resetCoachState = useCallback(() => {
+    setActivePhase('goal');
+    setGoalTopic('');
+    setGoalTimeframe('this week');
+    setPreferredTools(['molview', 'nmrium']);
+    setPlanFocus('');
+    setPlanLevel('beginner');
+    setPlanPreference('visual');
+    setMonitorFocus('');
+    setMonitorRating(null);
+    setMonitorNotes('');
+    setReflectionNotes('');
+    setReflectionEmotion(SRL_REFLECTION_EMOTIONS[0]);
+    setHelpTopic('');
+    setHelpAttempts(1);
+    setHelpLevel('hint');
+    setCoachLog([]);
+    setMomentumScore(0);
+    setPhaseStreak(0);
+    setCoachEnergy(55);
+    setUnlockedBadgeIds([]);
+    setExperiencePoints(0);
+    setStreakBonus(0);
+    setPriorKnowledgeSnapshots([]);
+    setGoalBuddySummary('');
+    setSelectedAssessmentMode(null);
+    setIsAssessmentRunning(false);
+    setAssessmentGoalHint('');
+    setAssessmentState(null);
+    setAssessmentFeedback(null);
+    setAssessmentReview(null);
+    setCurrentAssessmentChoice(null);
+    setAssessmentError(null);
+    setPlanNodesState([]);
+    setPlanEdgesState([]);
+    setPlanScenariosState([]);
+    setMonitoringCheckins([]);
+    setReflectionEntries([]);
+    setHelpRequests([]);
+    setInsightBulletin(null);
+    setIsArPreviewActive(false);
+    setActiveChallenge(() => pickRandom(SRL_CHALLENGE_DECK));
+    setHypeTip(() => {
+      const nextTip = pickRandom(SRL_HYPE_TIPS.goal);
+      return nextTip ?? 'Ready to chart your next chemistry quest?';
+    });
+  }, []);
+
+  const applyPersistedState = useCallback((persisted?: Partial<PersistedSrlCoachState>) => {
+    if (!persisted) {
+      return;
+    }
+
+    if (persisted.activePhase) {
+      setActivePhase(persisted.activePhase);
+    }
+    setGoalTopic(persisted.goalTopic ?? '');
+    setGoalTimeframe(persisted.goalTimeframe ?? 'this week');
+    setPreferredTools(Array.isArray(persisted.preferredTools) ? persisted.preferredTools : ['molview', 'nmrium']);
+    if (Array.isArray(persisted.priorKnowledge)) {
+      setPriorKnowledgeSnapshots(persisted.priorKnowledge);
+    }
+    setGoalBuddySummary(persisted.goalBuddySummary ?? '');
+    setPlanFocus(persisted.planFocus ?? '');
+    if (persisted.planLevel === 'beginner' || persisted.planLevel === 'intermediate' || persisted.planLevel === 'advanced') {
+      setPlanLevel(persisted.planLevel);
+    } else {
+      setPlanLevel('beginner');
+    }
+    setPlanPreference(persisted.planPreference ?? 'visual');
+    if (Array.isArray(persisted.planNodes)) {
+      setPlanNodesState(persisted.planNodes);
+    }
+    if (Array.isArray(persisted.planEdges)) {
+      setPlanEdgesState(persisted.planEdges);
+    }
+    if (Array.isArray(persisted.planScenarios)) {
+      setPlanScenariosState(persisted.planScenarios);
+    }
+    setMonitorFocus(persisted.monitorFocus ?? '');
+    setMonitorRating(typeof persisted.monitorRating === 'number' ? persisted.monitorRating : null);
+    setMonitorNotes(persisted.monitorNotes ?? '');
+    if (Array.isArray(persisted.monitoringCheckins)) {
+      setMonitoringCheckins(persisted.monitoringCheckins);
+    }
+    setReflectionNotes(persisted.reflectionNotes ?? '');
+    setReflectionEmotion(
+      persisted.reflectionEmotion && SRL_REFLECTION_EMOTIONS.includes(persisted.reflectionEmotion)
+        ? persisted.reflectionEmotion
+        : SRL_REFLECTION_EMOTIONS[0]
+    );
+    if (Array.isArray(persisted.reflectionEntries)) {
+      setReflectionEntries(persisted.reflectionEntries);
+    }
+    setHelpTopic(persisted.helpTopic ?? '');
+    setHelpAttempts(persisted.helpAttempts ?? 1);
+    if (persisted.helpLevel === 'hint' || persisted.helpLevel === 'guided' || persisted.helpLevel === 'explanation') {
+      setHelpLevel(persisted.helpLevel);
+    } else {
+      setHelpLevel('hint');
+    }
+    if (Array.isArray(persisted.helpRequests)) {
+      setHelpRequests(persisted.helpRequests);
+    }
+    if (Array.isArray(persisted.coachLog)) {
+      setCoachLog(persisted.coachLog);
+    }
+  }, []);
+
+  const applyPersistedMetrics = useCallback((metrics?: Partial<SrlCoachMetrics>) => {
+    if (!metrics) {
+      return;
+    }
+
+    if (typeof metrics.momentumScore === 'number') {
+      setMomentumScore(metrics.momentumScore);
+    }
+    if (typeof metrics.phaseStreak === 'number') {
+      setPhaseStreak(metrics.phaseStreak);
+    }
+    if (typeof metrics.coachEnergy === 'number') {
+      setCoachEnergy(metrics.coachEnergy);
+    }
+    if (Array.isArray(metrics.unlockedBadgeIds)) {
+      setUnlockedBadgeIds(metrics.unlockedBadgeIds);
+    }
+    if (typeof metrics.experiencePoints === 'number') {
+      setExperiencePoints(metrics.experiencePoints);
+    }
+    if (typeof metrics.streakBonus === 'number') {
+      setStreakBonus(metrics.streakBonus);
+    }
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -449,86 +745,91 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
   }, []);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || isHydratedRef.current) {
+    if (typeof window === 'undefined') {
       return;
     }
 
+    let hydratedState = false;
+    let hydratedMetrics = false;
+
     try {
-      const storedState = window.localStorage.getItem(COACH_STATE_STORAGE_KEY);
+      const storedState = window.localStorage.getItem(stateStorageKey);
       if (storedState) {
-        const parsed = JSON.parse(storedState) as Partial<PersistedSrlCoachState>;
-        if (parsed.activePhase) {
-          setActivePhase(parsed.activePhase);
-        }
-        setGoalTopic(parsed.goalTopic ?? '');
-        setGoalTimeframe(parsed.goalTimeframe ?? 'this week');
-        setPreferredTools(Array.isArray(parsed.preferredTools) ? parsed.preferredTools : ['molview', 'nmrium']);
-        if (Array.isArray(parsed.priorKnowledge)) {
-          setPriorKnowledgeSnapshots(parsed.priorKnowledge);
-        }
-        setGoalBuddySummary(parsed.goalBuddySummary ?? '');
-        setPlanFocus(parsed.planFocus ?? '');
-        setPlanLevel(parsed.planLevel ?? 'beginner');
-        setPlanPreference(parsed.planPreference ?? 'visual');
-        if (Array.isArray(parsed.planNodes)) {
-          setPlanNodesState(parsed.planNodes);
-        }
-        if (Array.isArray(parsed.planEdges)) {
-          setPlanEdgesState(parsed.planEdges);
-        }
-        if (Array.isArray(parsed.planScenarios)) {
-          setPlanScenariosState(parsed.planScenarios);
-        }
-        setMonitorFocus(parsed.monitorFocus ?? '');
-        setMonitorRating(typeof parsed.monitorRating === 'number' ? parsed.monitorRating : null);
-        setMonitorNotes(parsed.monitorNotes ?? '');
-        if (Array.isArray(parsed.monitoringCheckins)) {
-          setMonitoringCheckins(parsed.monitoringCheckins);
-        }
-        setReflectionNotes(parsed.reflectionNotes ?? '');
-        setReflectionEmotion(parsed.reflectionEmotion ?? SRL_REFLECTION_EMOTIONS[0]);
-        if (Array.isArray(parsed.reflectionEntries)) {
-          setReflectionEntries(parsed.reflectionEntries);
-        }
-        setHelpTopic(parsed.helpTopic ?? '');
-        setHelpAttempts(parsed.helpAttempts ?? 1);
-        setHelpLevel(parsed.helpLevel ?? 'hint');
-        if (Array.isArray(parsed.helpRequests)) {
-          setHelpRequests(parsed.helpRequests);
-        }
-        if (Array.isArray(parsed.coachLog)) {
-          setCoachLog(parsed.coachLog);
+        const parsedState = JSON.parse(storedState) as Partial<PersistedSrlCoachState>;
+        applyPersistedState(parsedState);
+        hydratedState = true;
+      } else if (stateStorageKey !== COACH_STATE_STORAGE_KEY) {
+        const legacyState = window.localStorage.getItem(COACH_STATE_STORAGE_KEY);
+        if (legacyState) {
+          const parsedLegacyState = JSON.parse(legacyState) as Partial<PersistedSrlCoachState>;
+          applyPersistedState(parsedLegacyState);
+          hydratedState = true;
         }
       }
 
-      const storedMetrics = window.localStorage.getItem(COACH_METRICS_STORAGE_KEY);
+      const storedMetrics = window.localStorage.getItem(metricsStorageKey);
       if (storedMetrics) {
         const parsedMetrics = JSON.parse(storedMetrics) as Partial<SrlCoachMetrics>;
-        if (typeof parsedMetrics.momentumScore === 'number') {
-          setMomentumScore(parsedMetrics.momentumScore);
-        }
-        if (typeof parsedMetrics.phaseStreak === 'number') {
-          setPhaseStreak(parsedMetrics.phaseStreak);
-        }
-        if (typeof parsedMetrics.coachEnergy === 'number') {
-          setCoachEnergy(parsedMetrics.coachEnergy);
-        }
-        if (Array.isArray(parsedMetrics.unlockedBadgeIds)) {
-          setUnlockedBadgeIds(parsedMetrics.unlockedBadgeIds);
-        }
-        if (typeof parsedMetrics.experiencePoints === 'number') {
-          setExperiencePoints(parsedMetrics.experiencePoints);
-        }
-        if (typeof parsedMetrics.streakBonus === 'number') {
-          setStreakBonus(parsedMetrics.streakBonus);
+        applyPersistedMetrics(parsedMetrics);
+        hydratedMetrics = true;
+      } else if (metricsStorageKey !== COACH_METRICS_STORAGE_KEY) {
+        const legacyMetrics = window.localStorage.getItem(COACH_METRICS_STORAGE_KEY);
+        if (legacyMetrics) {
+          const parsedLegacyMetrics = JSON.parse(legacyMetrics) as Partial<SrlCoachMetrics>;
+          applyPersistedMetrics(parsedLegacyMetrics);
+          hydratedMetrics = true;
         }
       }
     } catch (error) {
       console.error('Failed to hydrate SRL coach state', error);
     } finally {
-      isHydratedRef.current = true;
+      if (!hydratedState) {
+        resetCoachState();
+      } else if (!hydratedMetrics) {
+        setMomentumScore(0);
+        setPhaseStreak(0);
+        setCoachEnergy(55);
+        setUnlockedBadgeIds([]);
+        setExperiencePoints(0);
+        setStreakBonus(0);
+      }
     }
-  }, []);
+  }, [applyPersistedMetrics, applyPersistedState, metricsStorageKey, resetCoachState, stateStorageKey]);
+
+  useEffect(() => {
+    if (!userId) {
+      return;
+    }
+
+    let isMounted = true;
+
+    const fetchRemoteCoachData = async () => {
+      try {
+        const coachDocRef = getCoachDataDocRef(userId);
+        const snapshot = await getDoc(coachDocRef);
+        if (snapshot.exists() && isMounted) {
+          const data = snapshot.data() as {
+            state?: PersistedSrlCoachState;
+            metrics?: SrlCoachMetrics;
+          };
+          if (data.state) {
+            applyPersistedState(data.state);
+          }
+          if (data.metrics) {
+            applyPersistedMetrics(data.metrics);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load SRL coach data from Firestore', error);
+      }
+    };
+
+    fetchRemoteCoachData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [applyPersistedMetrics, applyPersistedState, userId]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -536,12 +837,6 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
     }
 
     window.localStorage.setItem(COACH_PRIVACY_STORAGE_KEY, shareCoachData ? 'true' : 'false');
-
-    if (!shareCoachData) {
-      window.localStorage.removeItem(COACH_STATE_STORAGE_KEY);
-      window.localStorage.removeItem(COACH_METRICS_STORAGE_KEY);
-      return;
-    }
 
     const statePayload: PersistedSrlCoachState = {
       activePhase,
@@ -581,14 +876,66 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
       updatedAt: new Date().toISOString()
     };
 
-    try {
-      window.localStorage.setItem(COACH_STATE_STORAGE_KEY, JSON.stringify(statePayload));
-      window.localStorage.setItem(COACH_METRICS_STORAGE_KEY, JSON.stringify(metricsPayload));
-    } catch (error) {
-      console.error('Failed to persist SRL coach state', error);
+    if (!shareCoachData) {
+      window.localStorage.removeItem(stateStorageKey);
+      if (stateStorageKey !== COACH_STATE_STORAGE_KEY) {
+        window.localStorage.removeItem(COACH_STATE_STORAGE_KEY);
+      }
+      window.localStorage.removeItem(metricsStorageKey);
+      if (metricsStorageKey !== COACH_METRICS_STORAGE_KEY) {
+        window.localStorage.removeItem(COACH_METRICS_STORAGE_KEY);
+      }
+      if (remoteSaveTimeoutRef.current !== null) {
+        window.clearTimeout(remoteSaveTimeoutRef.current);
+        remoteSaveTimeoutRef.current = null;
+      }
+    } else {
+      try {
+        window.localStorage.setItem(stateStorageKey, JSON.stringify(statePayload));
+        if (stateStorageKey !== COACH_STATE_STORAGE_KEY) {
+          window.localStorage.removeItem(COACH_STATE_STORAGE_KEY);
+        }
+        window.localStorage.setItem(metricsStorageKey, JSON.stringify(metricsPayload));
+        if (metricsStorageKey !== COACH_METRICS_STORAGE_KEY) {
+          window.localStorage.removeItem(COACH_METRICS_STORAGE_KEY);
+        }
+      } catch (error) {
+        console.error('Failed to persist SRL coach state', error);
+      }
+
+      if (userId) {
+        if (remoteSaveTimeoutRef.current !== null) {
+          window.clearTimeout(remoteSaveTimeoutRef.current);
+        }
+
+        remoteSaveTimeoutRef.current = window.setTimeout(() => {
+          const coachDocRef = getCoachDataDocRef(userId);
+          setDoc(
+            coachDocRef,
+            {
+              state: statePayload,
+              metrics: metricsPayload,
+              updatedAt: new Date().toISOString()
+            },
+            { merge: true }
+          ).catch((error) => {
+            console.error('Failed to persist SRL coach state to Firestore', error);
+          });
+        }, 800);
+      }
     }
+
+    return () => {
+      if (remoteSaveTimeoutRef.current !== null) {
+        window.clearTimeout(remoteSaveTimeoutRef.current);
+        remoteSaveTimeoutRef.current = null;
+      }
+    };
   }, [
     shareCoachData,
+    stateStorageKey,
+    metricsStorageKey,
+    userId,
     activePhase,
     goalTopic,
     goalTimeframe,
@@ -630,6 +977,10 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
     setStreakBonus(Math.min(40, stats.longestStreak * 6 + stats.uniquePhases.size * 4));
   }, [coachLog]);
 
+  useEffect(() => {
+    setAssessmentGoalHint('');
+  }, [goalTopic]);
+
   const learningJourney = useMemo(() => {
     if (!coachLog.length) {
       return (Object.keys(SRL_PHASES) as SrlPhase[]).map((phase) => ({ phase, count: 0 }));
@@ -643,6 +994,24 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
       count: tally.get(phase) ?? 0
     }));
   }, [coachLog]);
+
+  const currentAssessmentQuestions = useMemo(() => {
+    if (!assessmentState) {
+      return null;
+    }
+    return ASSESSMENT_QUESTIONS[assessmentState.mode] ?? null;
+  }, [assessmentState]);
+
+  const currentAssessmentQuestion = useMemo(() => {
+    if (!assessmentState || assessmentState.completed) {
+      return null;
+    }
+    const questions = ASSESSMENT_QUESTIONS[assessmentState.mode];
+    if (!questions || questions.length === 0) {
+      return null;
+    }
+    return questions[assessmentState.questionIndex] ?? null;
+  }, [assessmentState]);
 
   useEffect(() => {
     const pool = [
@@ -671,6 +1040,172 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
     setPreferredTools(prev =>
       prev.includes(toolId) ? prev.filter(id => id !== toolId) : [...prev, toolId]
     );
+  };
+
+  const handleAssessmentModeSelect = (mode: AssessmentMode) => {
+    if (!goalTopic.trim() && !planFocus.trim()) {
+      setInsightBulletin('Add a focus area before running a baseline check.');
+      return;
+    }
+    const questions = ASSESSMENT_QUESTIONS[mode];
+    if (!questions || questions.length === 0) {
+      setInsightBulletin('Question bank for this mode is coming soon.');
+      return;
+    }
+    if (isAssessmentRunning && assessmentState && !assessmentState.completed) {
+      return;
+    }
+    setSelectedAssessmentMode(mode);
+    const initialAnswers = Array(questions.length).fill(-1);
+    setAssessmentState({
+      mode,
+      questionIndex: 0,
+      answers: initialAnswers,
+      startedAt: new Date().toISOString(),
+      completed: false,
+      score: null
+    });
+    setAssessmentFeedback(null);
+    setAssessmentReview(null);
+    setCurrentAssessmentChoice(null);
+    setAssessmentError(null);
+    setIsAssessmentRunning(true);
+    setAssessmentGoalHint('');
+    setInsightBulletin(`Baseline assessment started: ${ASSESSMENT_MODE_LABEL[mode]}.`);
+  };
+
+  const handleAssessmentOptionSelect = (optionIndex: number) => {
+    if (!assessmentState || assessmentState.completed) {
+      return;
+    }
+    setCurrentAssessmentChoice(optionIndex);
+    setAssessmentError(null);
+  };
+
+  const handleAssessmentCancel = () => {
+    setAssessmentState(null);
+    setSelectedAssessmentMode(null);
+    setCurrentAssessmentChoice(null);
+    setAssessmentError(null);
+    setAssessmentFeedback(null);
+    setAssessmentReview(null);
+    setAssessmentGoalHint('');
+    setIsAssessmentRunning(false);
+    setInsightBulletin('Baseline check cancelled.');
+  };
+
+  const handleAssessmentSubmit = () => {
+    if (!assessmentState || assessmentState.completed) {
+      return;
+    }
+    const questions = ASSESSMENT_QUESTIONS[assessmentState.mode];
+    if (!questions || questions.length === 0) {
+      return;
+    }
+    if (currentAssessmentChoice === null || currentAssessmentChoice < 0) {
+      setAssessmentError('Choose an option before continuing.');
+      return;
+    }
+
+    const updatedAnswers = [...assessmentState.answers];
+    updatedAnswers[assessmentState.questionIndex] = currentAssessmentChoice;
+    const isLast = assessmentState.questionIndex >= questions.length - 1;
+
+    if (isLast) {
+      setAssessmentState({
+        ...assessmentState,
+        answers: updatedAnswers
+      });
+      setCurrentAssessmentChoice(null);
+      runAssessment(assessmentState.mode, updatedAnswers);
+    } else {
+      const nextIndex = assessmentState.questionIndex + 1;
+      setAssessmentState({
+        ...assessmentState,
+        answers: updatedAnswers,
+        questionIndex: nextIndex
+      });
+      const storedChoice = updatedAnswers[nextIndex];
+      setCurrentAssessmentChoice(storedChoice >= 0 ? storedChoice : null);
+      setAssessmentError(null);
+    }
+  };
+
+  const runAssessment = (mode: AssessmentMode, answersOverride?: number[]) => {
+    if (!assessmentState || assessmentState.mode !== mode) {
+      return;
+    }
+    const answers = answersOverride ?? assessmentState.answers;
+    const questions = ASSESSMENT_QUESTIONS[mode];
+    if (!questions || questions.length === 0) {
+      return;
+    }
+    const answeredAll = answers.every((answer) => answer >= 0);
+    if (!answeredAll) {
+      return;
+    }
+
+    const focus = goalTopic.trim() || planFocus.trim() || 'your current chemistry focus';
+    const modeLabel = ASSESSMENT_MODE_LABEL[mode];
+    const correctCount = answers.reduce((total, answer, index) => {
+      const question = questions[index];
+      return total + (answer === question.correctOptionIndex ? 1 : 0);
+    }, 0);
+    const score = Math.round((correctCount / questions.length) * 100);
+    const highlightBank = ASSESSMENT_HIGHLIGHTS[mode];
+    const strengths = pickRandomSubset(highlightBank.strengths, 2);
+    const improvements = pickRandomSubset(highlightBank.improvements, 2);
+    const snapshot: PriorKnowledgeSnapshot = {
+      id: `snapshot-${Date.now()}`,
+      mode,
+      score,
+      summary: `${modeLabel} baseline for ${focus} landed at ${score}% confidence.`,
+      strengths,
+      improvements,
+      aiRecommendation:
+        score >= 75
+          ? `Momentum is strong. Stretch with a virtual lab or advanced quiz on ${focus}.`
+          : `Rebuild fundamentals on ${focus} using MolView visuals and a short quiz loop.`,
+      completedAt: new Date().toISOString()
+    };
+    setPriorKnowledgeSnapshots((prev) => [snapshot, ...prev.filter((existing) => existing.id !== snapshot.id)].slice(0, 5));
+    logCoachAction('goal', `${modeLabel} baseline captured via assessment (${score}%)`);
+    setExperiencePoints((prev) => Math.min(999, prev + 30));
+    setAssessmentFeedback({
+      score,
+      correct: correctCount,
+      total: questions.length
+    });
+    const reviewItems: AssessmentReviewItem[] = questions.map((question, index) => {
+      const chosen = answers[index];
+      return {
+        id: question.id,
+        prompt: question.prompt,
+        chosenOption: chosen >= 0 ? question.options[chosen] : 'Not answered',
+        correctOption: question.options[question.correctOptionIndex],
+        isCorrect: chosen === question.correctOptionIndex,
+        explanation: question.explanation
+      };
+    });
+    setAssessmentReview(reviewItems);
+
+    const goalHint =
+      score >= 80
+        ? `You're primed for stretch work on ${focus}. Set a SMART goal that includes an advanced simulation or timed challenge.`
+        : score >= 60
+          ? `Set a SMART goal for ${focus} that blends review with fresh practice. Aim for a specific quiz accuracy gain this week.`
+          : `Focus your goal on rebuilding foundations for ${focus}. Schedule short daily blocks with MolView and flash cards.`;
+    setAssessmentGoalHint(goalHint);
+    setInsightBulletin(`Assessment complete. You answered ${correctCount} of ${questions.length} correctly.`);
+    setAssessmentState({
+      ...assessmentState,
+      answers,
+      completed: true,
+      score
+    });
+    setIsAssessmentRunning(false);
+    setCurrentAssessmentChoice(null);
+    setAssessmentError(null);
   };
 
   const logCoachAction = (phase: SrlPhase, note: string) => {
@@ -849,47 +1384,6 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
     ]);
     if (bonusTip) {
       setHypeTip(bonusTip);
-    }
-  };
-
-  const handleRunAssessment = async () => {
-    if (!selectedAssessmentMode || isAssessmentRunning) {
-      return;
-    }
-
-    setIsAssessmentRunning(true);
-    setInsightBulletin(null);
-
-    const focus = goalTopic.trim() || planFocus.trim() || 'your current chemistry focus';
-    const modeLabel = ASSESSMENT_MODE_LABEL[selectedAssessmentMode];
-
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      const highlightBank = ASSESSMENT_HIGHLIGHTS[selectedAssessmentMode];
-      const strengths = pickRandomSubset(highlightBank.strengths, 2);
-      const improvements = pickRandomSubset(highlightBank.improvements, 2);
-      const score = Math.max(40, Math.min(100, Math.round(55 + Math.random() * 40)));
-      const snapshot: PriorKnowledgeSnapshot = {
-        id: `snapshot-${Date.now()}`,
-        mode: selectedAssessmentMode,
-        score,
-        summary: `${modeLabel} baseline for ${focus} landed at ${score}% confidence.`,
-        strengths,
-        improvements,
-        aiRecommendation:
-          score >= 75
-            ? `Momentum is strong. Stretch with a virtual lab or advanced quiz on ${focus}.`
-            : `Rebuild fundamentals on ${focus} using MolView visuals and a short quiz loop.`,
-        completedAt: new Date().toISOString()
-      };
-      setPriorKnowledgeSnapshots((prev) => [snapshot, ...prev].slice(0, 5));
-      logCoachAction('goal', `${modeLabel} baseline captured (${score}%)`);
-      setExperiencePoints((prev) => Math.min(999, prev + 25));
-      setInsightBulletin(`Baseline captured - Goal Buddy now has fresh data for ${focus}.`);
-    } catch (error) {
-      console.error('Failed to run prior knowledge assessment', error);
-    } finally {
-      setIsAssessmentRunning(false);
     }
   };
 
@@ -1367,12 +1861,118 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
                         </button>
                         <PriorKnowledgePanel
                           selectedMode={selectedAssessmentMode}
-                          onSelectMode={setSelectedAssessmentMode}
-                          onLaunchAssessment={handleRunAssessment}
+                          onSelectMode={handleAssessmentModeSelect}
                           onGenerateGoalBuddy={handleGenerateGoalBuddy}
                           snapshots={priorKnowledgeSnapshots}
                           isBusy={isLoading || isAssessmentRunning}
                         />
+                        {assessmentState && !assessmentState.completed && currentAssessmentQuestion && currentAssessmentQuestions ? (
+                          <div className="rounded-2xl border border-amber-500/30 bg-amber-900/15 p-4 space-y-4">
+                            <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                              <div>
+                                <p className="text-xs font-semibold uppercase tracking-wide text-amber-200">Baseline Assessment</p>
+                                <h4 className="text-sm font-semibold text-amber-100">
+                                  {ASSESSMENT_MODE_LABEL[assessmentState.mode]}
+                                </h4>
+                              </div>
+                              <span className="text-[11px] uppercase tracking-wide text-amber-200/70">
+                                Question {assessmentState.questionIndex + 1} of {currentAssessmentQuestions.length}
+                              </span>
+                            </div>
+                            <div className="text-sm text-amber-50">
+                              {currentAssessmentQuestion.prompt}
+                            </div>
+                            <div className="grid gap-2">
+                              {currentAssessmentQuestion.options.map((option, index) => {
+                                const isSelected = currentAssessmentChoice === index;
+                                return (
+                                  <button
+                                    key={`${currentAssessmentQuestion.id}-option-${index}`}
+                                    type="button"
+                                    onClick={() => handleAssessmentOptionSelect(index)}
+                                    className={`flex items-start gap-2 rounded-xl border px-3 py-2 text-left text-xs transition ${
+                                      isSelected
+                                        ? 'border-amber-400 bg-amber-500/20 text-amber-100 shadow-sm'
+                                        : 'border-amber-500/20 bg-transparent text-amber-100/80 hover:border-amber-400/40 hover:bg-amber-500/10'
+                                    }`}
+                                  >
+                                    <span className="mt-[3px] inline-flex h-2.5 w-2.5 rounded-full bg-amber-300" />
+                                    <span>{option}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            {assessmentError ? (
+                              <p className="text-xs text-rose-300">{assessmentError}</p>
+                            ) : null}
+                            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                              <button
+                                type="button"
+                                onClick={handleAssessmentCancel}
+                                className="inline-flex items-center gap-2 rounded-lg border border-amber-400/40 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-amber-100 transition hover:border-amber-300 hover:bg-amber-400/10"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleAssessmentSubmit}
+                                className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-amber-500 via-amber-600 to-orange-500 px-4 py-2 text-sm font-semibold text-white shadow-md transition hover:from-amber-400 hover:to-orange-400"
+                              >
+                                {assessmentState.questionIndex >= currentAssessmentQuestions.length - 1
+                                  ? 'Finish Assessment'
+                                  : 'Next Question'}
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+                        {assessmentFeedback && assessmentState?.completed && assessmentReview ? (
+                          <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 space-y-3">
+                            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                              <div>
+                                <p className="text-xs font-semibold uppercase tracking-wide text-amber-200">Assessment Summary</p>
+                                <h4 className="text-sm font-semibold text-amber-100">
+                                  {ASSESSMENT_MODE_LABEL[assessmentState.mode]}
+                                </h4>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-2xl font-bold text-amber-50">{assessmentFeedback.score}%</p>
+                                <p className="text-[11px] uppercase tracking-wide text-amber-200/80">
+                                  {assessmentFeedback.correct} / {assessmentFeedback.total} correct
+                                </p>
+                              </div>
+                            </div>
+                            <div className="space-y-2">
+                              {assessmentReview.map((item) => (
+                                <div
+                                  key={item.id}
+                                  className="rounded-xl border border-amber-400/30 bg-amber-900/15 p-3 text-xs text-amber-100"
+                                >
+                                  <p className="font-semibold text-amber-50">{item.prompt}</p>
+                                  <p
+                                    className={`mt-2 font-semibold ${
+                                      item.isCorrect ? 'text-emerald-200' : 'text-rose-200'
+                                    }`}
+                                  >
+                                    {item.isCorrect ? 'Correct' : 'Needs Review'}
+                                  </p>
+                                  <p className="text-amber-100/80">You chose: {item.chosenOption}</p>
+                                  {!item.isCorrect ? (
+                                    <p className="text-amber-100/80">Correct answer: {item.correctOption}</p>
+                                  ) : null}
+                                  {item.explanation ? (
+                                    <p className="mt-1 text-amber-100/60">Why: {item.explanation}</p>
+                                  ) : null}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                        {assessmentGoalHint ? (
+                          <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-100">
+                            <p className="font-semibold uppercase tracking-wide text-amber-200">Goal Guidance</p>
+                            <p className="mt-1 text-amber-100/80">{assessmentGoalHint}</p>
+                          </div>
+                        ) : null}
                         {goalBuddySummary ? (
                           <div className="rounded-2xl border border-blue-500/30 bg-blue-500/10 p-3 text-xs text-blue-100">
                             <p className="font-semibold uppercase tracking-wide text-blue-200">Goal Buddy Insight</p>
@@ -1738,23 +2338,7 @@ const SrlCoach: React.FC<SrlCoachProps> = ({
             <p className="text-xs text-blue-100">
               Use your mobile device to project molecules onto your desk for deeper spatial reasoning while you study.
             </p>
-            {isArPreviewActive ? (
-              <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 space-y-2 text-[11px] text-blue-100">
-                <p>1. Open the AR scene, then point your camera at a flat surface.</p>
-                <p>2. Explore bond angles, annotations, and align the model with your current goal.</p>
-                <a
-                  href="https://chemcanvas.netlify.app/tools/molview?mode=ar"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-2 rounded-md border border-blue-400/60 bg-blue-500/20 px-3 py-1 text-xs font-semibold text-blue-100 transition hover:bg-blue-500/30"
-                >
-                  Launch MolView AR Beta
-                </a>
-                <p className="text-blue-200/80">
-                  Tip: Capture a screenshot and drop it into your reflection timeline or share with your study group.
-                </p>
-              </div>
-            ) : null}
+            {isArPreviewActive ? <ArMoleculePreview focusTopic={goalTopic || planFocus} /> : null}
           </div>
 
           <div className="rounded-2xl border border-amber-500/40 bg-amber-900/10 p-4 space-y-3">

@@ -660,6 +660,7 @@ Here is the learner's question: ${message}`
           isLoading={coachLoading}
           documentName={sources.length > 0 ? `${sources.length} sources` : 'No sources'}
           onOpenDocument={() => setDocumentViewerOpen(true)}
+          user={user}
           onClose={() => {
             setShowSrlCoachWorkspace(false);
             setShowChatPanel(false);

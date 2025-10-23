@@ -1,6 +1,7 @@
 import { Target, ArrowLeft, Sparkles } from 'lucide-react';
 import SrlCoach from './SrlCoach';
 import type { AIInteraction, InteractionMode } from '../types';
+import type { UserProfile } from '../firebase/auth';
 
 interface SrlCoachWorkspaceProps {
   interactions: AIInteraction[];
@@ -9,6 +10,7 @@ interface SrlCoachWorkspaceProps {
   onClose: () => void;
   documentName?: string;
   onOpenDocument?: () => void;
+  user?: UserProfile | null;
 }
 
 const SrlCoachWorkspace: React.FC<SrlCoachWorkspaceProps> = ({
@@ -18,6 +20,7 @@ const SrlCoachWorkspace: React.FC<SrlCoachWorkspaceProps> = ({
   onClose,
   documentName,
   onOpenDocument,
+  user
 }) => {
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-slate-950">
@@ -49,6 +52,7 @@ const SrlCoachWorkspace: React.FC<SrlCoachWorkspaceProps> = ({
           isLoading={isLoading}
           documentName={documentName}
           onOpenDocument={onOpenDocument}
+          user={user}
         />
       </div>
     </div>

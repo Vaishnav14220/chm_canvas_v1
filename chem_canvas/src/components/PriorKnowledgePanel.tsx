@@ -5,7 +5,6 @@ import { Sparkles, Target, ClipboardList, PenTool } from 'lucide-react';
 interface PriorKnowledgePanelProps {
   selectedMode: AssessmentMode | null;
   onSelectMode: (mode: AssessmentMode) => void;
-  onLaunchAssessment: () => void;
   onGenerateGoalBuddy: () => void;
   snapshots: PriorKnowledgeSnapshot[];
   isBusy: boolean;
@@ -35,7 +34,6 @@ const MODE_CONFIG: Record<
 const PriorKnowledgePanel = ({
   selectedMode,
   onSelectMode,
-  onLaunchAssessment,
   onGenerateGoalBuddy,
   snapshots,
   isBusy
@@ -77,28 +75,23 @@ const PriorKnowledgePanel = ({
       </div>
 
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-        <div className="text-xs text-amber-200/90">
-          {selectedMode
-            ? `Ready for a ${MODE_CONFIG[selectedMode].label.toLowerCase()}? This helps tailor your SMART goal.`
-            : 'Pick a quick activity to calibrate your starting point.'}
+        <div className="flex flex-col text-xs text-amber-200/90">
+          <span>
+            {selectedMode
+              ? `Launching a ${MODE_CONFIG[selectedMode].label.toLowerCase()} baseline now...`
+              : 'Pick a quick activity to calibrate your starting point.'}
+          </span>
+          {isBusy ? (
+            <span className="text-amber-100/80">Running quick assessment...</span>
+          ) : null}
         </div>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={onLaunchAssessment}
-            disabled={!selectedMode || isBusy}
-            className="inline-flex items-center rounded-lg border border-amber-400 bg-amber-500/20 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-amber-50 transition hover:bg-amber-400/30 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Run Assessment
-          </button>
-          <button
-            type="button"
-            onClick={onGenerateGoalBuddy}
-            className="inline-flex items-center rounded-lg border border-blue-400/70 bg-blue-500/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-blue-100 transition hover:bg-blue-500/20"
-          >
-            Goal Buddy Insight
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={onGenerateGoalBuddy}
+          className="inline-flex items-center rounded-lg border border-blue-400/70 bg-blue-500/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-blue-100 transition hover:bg-blue-500/20"
+        >
+          Goal Buddy Insight
+        </button>
       </div>
 
       {latestSnapshot ? (
