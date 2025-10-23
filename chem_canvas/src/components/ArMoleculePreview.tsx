@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Beaker,
@@ -8,6 +8,7 @@ import {
   Smartphone,
   Sparkles
 } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 
 declare global {
   interface XRSystem {
@@ -220,13 +221,16 @@ const MoleculeStage: React.FC<{
   error: string | null;
   displayMode: DisplayMode;
   arSupported: boolean;
+  scaleMultiplier: number;
   onSessionStateChange?: (state: 'idle' | 'ar' | 'error') => void;
   onArButtonReady?: (button: HTMLElement | null) => void;
-}> = ({ molecule, loading, error, displayMode, arSupported, onSessionStateChange, onArButtonReady }) => {
+  onScaleGesture?: (value: number) => void;
+}> = ({ molecule, loading, error, displayMode, arSupported, scaleMultiplier, onSessionStateChange, onArButtonReady, onScaleGesture }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const overlayButtonContainerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<ViewerReferences | null>(null);
+  const pinchStateRef = useRef<{ initialDistance: number; initialScale: number } | null>(null);
   const [initialised, setInitialised] = useState(false);
 
   useEffect(() => {
@@ -558,7 +562,8 @@ const MoleculeStage: React.FC<{
     const size = boundingBox.getSize(new viewer.THREE.Vector3()).length();
 
     group.position.sub(boundingBox.getCenter(new viewer.THREE.Vector3()));
-    group.scale.multiplyScalar(2.6 / Math.max(size, 1));
+    const baseScale = 2.6 / Math.max(size, 1);
+    group.scale.multiplyScalar(baseScale * scaleMultiplier);
     scene.add(group);
     viewer.moleculeGroup = group;
 
@@ -574,7 +579,62 @@ const MoleculeStage: React.FC<{
       const target = new viewer.THREE.Vector3(0, 0, -0.6);
       group.position.copy(target);
     }
-  }, [molecule, displayMode, initialised, onSessionStateChange]);
+  }, [molecule, displayMode, initialised, onSessionStateChange, scaleMultiplier]);
+
+  useEffect(() => {
+    if (!onScaleGesture) {
+      return;
+    }
+
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    const distance = (touch1: Touch, touch2: Touch) => {
+      const dx = touch1.clientX - touch2.clientX;
+      const dy = touch1.clientY - touch2.clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    };
+
+    const handleTouchStart = (event: TouchEvent) => {
+      if (event.touches.length === 2) {
+        pinchStateRef.current = {
+          initialDistance: distance(event.touches[0], event.touches[1]),
+          initialScale: scaleMultiplier
+        };
+      }
+    };
+
+    const handleTouchMove = (event: TouchEvent) => {
+      if (event.touches.length === 2 && pinchStateRef.current) {
+        event.preventDefault();
+        const currentDistance = distance(event.touches[0], event.touches[1]);
+        if (pinchStateRef.current.initialDistance > 0 && Number.isFinite(currentDistance)) {
+          const ratio = currentDistance / pinchStateRef.current.initialDistance;
+          const nextScale = Math.max(0.5, Math.min(2, pinchStateRef.current.initialScale * ratio));
+          onScaleGesture(nextScale);
+        }
+      }
+    };
+
+    const handleTouchEnd = () => {
+      pinchStateRef.current = null;
+    };
+
+    container.addEventListener('touchstart', handleTouchStart, { passive: false });
+    container.addEventListener('touchmove', handleTouchMove, { passive: false });
+    container.addEventListener('touchend', handleTouchEnd);
+    container.addEventListener('touchcancel', handleTouchEnd);
+
+    return () => {
+      container.removeEventListener('touchstart', handleTouchStart);
+      container.removeEventListener('touchmove', handleTouchMove);
+      container.removeEventListener('touchend', handleTouchEnd);
+      container.removeEventListener('touchcancel', handleTouchEnd);
+      pinchStateRef.current = null;
+    };
+  }, [onScaleGesture, scaleMultiplier]);
 
   return (
     <div className="space-y-2">
@@ -600,7 +660,13 @@ const MoleculeStage: React.FC<{
   );
 };
 
-const ArMoleculePreview: React.FC<{ focusTopic?: string }> = ({ focusTopic }) => {
+interface ArMoleculePreviewProps {
+  focusTopic?: string;
+  initialCid?: string;
+  mode?: 'standard' | 'mobile';
+}
+
+const ArMoleculePreview: React.FC<ArMoleculePreviewProps> = ({ focusTopic, initialCid, mode = 'standard' }) => {
   const suggested = useMemo(() => {
     if (!focusTopic) return null;
     const focus = focusTopic.toLowerCase();
@@ -624,15 +690,44 @@ const ArMoleculePreview: React.FC<{ focusTopic?: string }> = ({ focusTopic }) =>
   const [sessionState, setSessionState] = useState<'idle' | 'ar' | 'error'>('idle');
   const [arButtonElement, setArButtonElement] = useState<HTMLElement | null>(null);
   const [requiresHttps, setRequiresHttps] = useState(false);
+  const [isTouchDevice, setIsTouchDevice] = useState(false);
+  const [showQr, setShowQr] = useState(false);
+  const [scaleMultiplier, setScaleMultiplier] = useState(1);
+
+  const handleScaleGesture = useCallback((nextScale: number) => {
+    setScaleMultiplier((prev) => {
+      const clamped = Math.max(0.5, Math.min(2, nextScale));
+      return Math.abs(clamped - prev) < 0.0001 ? prev : clamped;
+    });
+  }, []);
 
   const handleEnterAr = () => {
     arButtonElement?.click();
   };
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      setRequiresHttps(!window.isSecureContext);
+    if (typeof window === 'undefined') {
+      return;
     }
+    setRequiresHttps(!window.isSecureContext);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const mediaQuery = window.matchMedia('(pointer: coarse)');
+    const update = () => setIsTouchDevice(mediaQuery.matches);
+    update();
+
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', update);
+      return () => mediaQuery.removeEventListener('change', update);
+    }
+
+    mediaQuery.addListener(update);
+    return () => mediaQuery.removeListener(update);
   }, []);
 
   useEffect(() => {
@@ -666,6 +761,36 @@ const ArMoleculePreview: React.FC<{ focusTopic?: string }> = ({ focusTopic }) =>
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    setShowQr(false);
+  }, [selected?.cid]);
+
+  useEffect(() => {
+    if (!initialCid) {
+      return;
+    }
+
+    setSelected((current) => {
+      if (current.cid === initialCid) {
+        return current;
+      }
+
+      const preset = AR_MOLECULE_LIBRARY.find((entry) => entry.cid === initialCid);
+      if (preset) {
+        return preset;
+      }
+
+      return {
+        id: `custom-${initialCid}`,
+        name: `PubChem CID ${initialCid}`,
+        cid: initialCid,
+        formula: 'n/a',
+        highlight: 'Fetched directly from PubChem.',
+        tags: ['custom']
+      };
+    });
+  }, [initialCid]);
 
   useEffect(() => {
     let active = true;
@@ -787,6 +912,17 @@ const ArMoleculePreview: React.FC<{ focusTopic?: string }> = ({ focusTopic }) =>
     return 'Ready to launch AR. Position your device and tap Start AR when you are ready.';
   })();
 
+  const qrValue = useMemo(() => {
+    if (typeof window === 'undefined') {
+      return '';
+    }
+    const cidValue = selected?.cid;
+    if (!cidValue) {
+      return '';
+    }
+    return `${window.location.origin}/ar/${encodeURIComponent(cidValue)}`;
+  }, [selected?.cid]);
+
   return (
     <div className="space-y-3 text-[11px] text-blue-100">
       <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-3">
@@ -807,39 +943,68 @@ const ArMoleculePreview: React.FC<{ focusTopic?: string }> = ({ focusTopic }) =>
         {arBanner}
       </div>
 
-      <div className="space-y-2">
-        <p className="font-semibold uppercase tracking-wide text-blue-200">Quick picks</p>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {AR_MOLECULE_LIBRARY.map((molecule) => {
-            const isActive = molecule.id === selected.id;
-            return (
-              <button
-                key={molecule.id}
-                type="button"
-                onClick={() => setSelected(molecule)}
-                className={`rounded-xl border px-3 py-2 text-left transition ${
-                  isActive
-                    ? 'border-blue-400 bg-blue-700/40 text-blue-50 shadow-inner'
-                    : 'border-blue-400/30 bg-blue-950/30 text-blue-100 hover:border-blue-400/60 hover:bg-blue-800/30'
-                }`}
-              >
-                <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-blue-200">
-                  <Package size={14} />
-                  {molecule.name}
-                </div>
-                <p className="mt-1 text-[10px] text-blue-200/80">
-                  {molecule.formula} &middot; CID {molecule.cid}
-                </p>
-                <p className="mt-1 text-[10px] text-blue-100/75">{molecule.highlight}</p>
-              </button>
-            );
-          })}
+      {mode !== 'mobile' && (
+        <div className="space-y-2">
+          <p className="font-semibold uppercase tracking-wide text-blue-200">Quick picks</p>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {AR_MOLECULE_LIBRARY.map((molecule) => {
+              const isActive = molecule.id === selected.id;
+              return (
+                <button
+                  key={molecule.id}
+                  type="button"
+                  onClick={() => setSelected(molecule)}
+                  className={`rounded-xl border px-3 py-2 text-left transition ${
+                    isActive
+                      ? 'border-blue-400 bg-blue-700/40 text-blue-50 shadow-inner'
+                      : 'border-blue-400/30 bg-blue-950/30 text-blue-100 hover:border-blue-400/60 hover:bg-blue-800/30'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-blue-200">
+                    <Package size={14} />
+                    {molecule.name}
+                  </div>
+                  <p className="mt-1 text-[10px] text-blue-200/80">
+                    {molecule.formula} &middot; CID {molecule.cid}
+                  </p>
+                  <p className="mt-1 text-[10px] text-blue-100/75">{molecule.highlight}</p>
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
-      <div className="rounded-xl border border-blue-500/40 bg-blue-950/40 p-3 space-y-2">
-        <p className="font-semibold uppercase tracking-wide text-blue-200">Load a PubChem CID</p>
-        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+      {mode === 'standard' && !isTouchDevice && qrValue ? (
+        <div className="rounded-xl border border-blue-500/40 bg-blue-950/40 p-3 space-y-2">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-blue-200">Share to mobile</p>
+              <p className="mt-1 text-[11px] text-blue-100/80">
+                Scan the QR code with your phone to open this molecule in AR instantly.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowQr((prev) => !prev)}
+              className="rounded-lg border border-blue-400/60 bg-blue-600/40 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-blue-50 transition hover:bg-blue-600/50"
+            >
+              {showQr ? 'Hide QR' : 'Show QR'}
+            </button>
+          </div>
+          {showQr ? (
+            <div className="flex flex-col items-center gap-2 rounded-lg border border-blue-500/40 bg-blue-900/30 p-3">
+              <QRCodeSVG value={qrValue} size={196} includeMargin />
+              <p className="text-[11px] text-blue-200/80 break-all">{qrValue}</p>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {mode !== 'mobile' && (
+        <div className="rounded-xl border border-blue-500/40 bg-blue-950/40 p-3 space-y-2">
+          <p className="font-semibold uppercase tracking-wide text-blue-200">Load a PubChem CID</p>
+          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
           <input
             value={customCid}
             onChange={(event) => setCustomCid(event.target.value)}
@@ -861,12 +1026,14 @@ const ArMoleculePreview: React.FC<{ focusTopic?: string }> = ({ focusTopic }) =>
             Load
           </button>
         </div>
-        <p className="text-blue-200/75">
-          CIDs are visible in the right-hand metadata panel on PubChem compound pages.
-        </p>
-      </div>
+          <p className="text-blue-200/75">
+            CIDs are visible in the right-hand metadata panel on PubChem compound pages.
+          </p>
+        </div>
+      )}
 
-      <div className="flex flex-wrap items-center gap-2 text-blue-200/80">
+      {mode !== 'mobile' && (
+        <div className="flex flex-wrap items-center gap-2 text-blue-200/80">
         <span className="font-semibold uppercase tracking-wide">Display mode:</span>
         {DISPLAY_MODES.map((mode) => {
           const isActive = mode.id === displayMode.id;
@@ -886,6 +1053,26 @@ const ArMoleculePreview: React.FC<{ focusTopic?: string }> = ({ focusTopic }) =>
             </button>
           );
         })}
+        </div>
+      )}
+
+      <div className="rounded-xl border border-blue-500/40 bg-blue-950/40 p-3 space-y-2">
+        <label className="flex flex-col gap-1 text-xs text-blue-200 uppercase tracking-wide">
+          AR scale
+          <input
+            type="range"
+            min="0.5"
+            max="2"
+            step="0.05"
+            value={scaleMultiplier}
+            onChange={(event) => setScaleMultiplier(Number(event.target.value))}
+            className="mt-1"
+          />
+        </label>
+        <p className="text-[11px] text-blue-200/80">
+          Use this to shrink or enlarge the molecule before launching AR, or pinch on touch screens for quick tweaks. Current scale:{' '}
+          <span className="font-semibold text-blue-100">x{scaleMultiplier.toFixed(2)}</span>
+        </p>
       </div>
 
       {loadError ? (
@@ -911,8 +1098,10 @@ const ArMoleculePreview: React.FC<{ focusTopic?: string }> = ({ focusTopic }) =>
         error={loadError}
         displayMode={displayMode}
         arSupported={arSupported ?? false}
+        scaleMultiplier={scaleMultiplier}
         onSessionStateChange={setSessionState}
         onArButtonReady={setArButtonElement}
+        onScaleGesture={handleScaleGesture}
       />
 
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-500/40 bg-blue-900/20 p-3 text-blue-100/80">

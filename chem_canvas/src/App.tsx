@@ -19,6 +19,7 @@ import { initializeFirebaseOnStartup } from './utils/initializeFirebase';
 import { loadSession, saveSession, getSessionStatus, extendSession } from './utils/sessionStorage';
 import * as geminiService from './services/geminiService';
 import ChemistryWidgetPanel from './components/ChemistryWidgetPanel';
+import ArMobileView from './components/ArMobileView';
 import SrlCoachWorkspace from './components/SrlCoachWorkspace';
 import type { AIInteraction, InteractionMode } from './types';
 
@@ -29,6 +30,13 @@ const NMR_ASSISTANT_PROMPT = `You are ChemAssist's NMR laboratory mentor embedde
 • Stay concise and student-friendly, but add detail if the learner asks for deeper explanations.`;
 
 const App: React.FC = () => {
+  const isArRoute =
+    typeof window !== 'undefined' && window.location.pathname.startsWith('/ar/');
+
+  if (isArRoute) {
+    return <ArMobileView />;
+  }
+
   // Authentication state
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState<UserProfile | null>(null);
