@@ -2,10 +2,6 @@ import React, { useState } from 'react';
 import { 
   Atom, 
   Beaker, 
-  FlaskConical, 
-  TestTube, 
-  Droplets, 
-  Zap, 
   ArrowRight, 
   Plus,
   Minus,
@@ -19,15 +15,24 @@ import {
   Grid3X3,
   Move,
   RotateCw,
-  Microscope
+  Microscope,
+  ChevronDown,
+  ChevronUp,
+  GripVertical
 } from 'lucide-react';
 import ResizeToolbar from './ResizeToolbar';
 
 interface ChemistryToolbarProps {
   onToolSelect: (tool: string) => void;
   currentTool: string;
-  onColorChange: (color: string) => void;
-  currentColor: string;
+  onColorChange?: (color: string) => void;
+  currentColor?: string;
+  onStrokeColorChange: (color: string) => void;
+  strokeColor: string;
+  onFillToggle: (enabled: boolean) => void;
+  fillEnabled: boolean;
+  onFillColorChange: (color: string) => void;
+  fillColor: string;
   onSizeChange: (size: number) => void;
   currentSize: number;
   onOpenCalculator?: () => void;
@@ -38,13 +43,21 @@ interface ChemistryToolbarProps {
   selectedShape?: any;
   onShapeResize?: (width: number, height: number) => void;
   onShapeRotate?: (angle: number) => void;
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
+  width?: number;
+  onResizeStart?: (event: React.MouseEvent<HTMLDivElement>) => void;
 }
 
 const ChemistryToolbar: React.FC<ChemistryToolbarProps> = ({
   onToolSelect,
   currentTool,
-  onColorChange,
-  currentColor,
+  onStrokeColorChange,
+  strokeColor,
+  onFillToggle,
+  fillEnabled,
+  onFillColorChange,
+  fillColor,
   onSizeChange,
   currentSize,
   onOpenCalculator,
@@ -54,7 +67,11 @@ const ChemistryToolbar: React.FC<ChemistryToolbarProps> = ({
   onOpenChemistryWidgets,
   selectedShape,
   onShapeResize,
-  onShapeRotate
+  onShapeRotate,
+  isCollapsed = false,
+  onToggleCollapse,
+  width,
+  onResizeStart
 }) => {
   const [showShapes, setShowShapes] = useState(false);
 
@@ -108,154 +125,252 @@ const ChemistryToolbar: React.FC<ChemistryToolbarProps> = ({
     '#ffffff', // White
     '#000000', // Black
     '#475569', // Dark gray
-    '#cbd5e1', // Light slate
-    '#e2e8f0', // Very light gray
+  '#cbd5e1', // Light slate
+  '#e2e8f0', // Very light gray
   ];
+
+  const containerStyle = width ? { width } : undefined;
+  const widthLabel = typeof width === 'number' ? `${Math.round(width)}px` : null;
 
 
   return (
-    <div className="bg-slate-800/90 backdrop-blur-sm border border-slate-700/50 rounded-xl p-4 shadow-lg">
-      {/* Chemistry Tools */}
-      <div className="mb-4">
-        <h3 className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
-          <Beaker size={16} className="text-blue-400" />
-          Chemistry Tools
-        </h3>
-        <div className="grid grid-cols-3 gap-2">
-          {chemistryTools.map((tool) => (
-            <button
-              key={tool.id}
-              onClick={() => {
-                if (tool.isSpecial && tool.id === 'calculator' && onOpenCalculator) {
-                  onOpenCalculator();
-                } else if (tool.isSpecial && tool.id === 'molview' && onOpenMolView) {
-                  onOpenMolView();
-                } else if (tool.isSpecial && tool.id === 'periodic' && onOpenPeriodicTable) {
-                  onOpenPeriodicTable();
-                } else if (tool.isSpecial && tool.id === 'molecules' && onOpenMoleculeSearch) {
-                  onOpenMoleculeSearch();
-                } else if (tool.isSpecial && tool.id === 'widgets' && onOpenChemistryWidgets) {
-                  onOpenChemistryWidgets();
-                } else {
-                  onToolSelect(tool.id);
-                }
-              }}
-              className={`p-2 rounded-lg transition-all flex flex-col items-center gap-1 ${
-                tool.isSpecial
-                  ? 'bg-primary/90 text-primary-foreground hover:bg-primary'
-                  : currentTool === tool.id
-                        ? 'bg-primary/90 text-primary-foreground'
-                        : 'bg-slate-700/50 text-slate-300 hover:bg-slate-600/50'
-              }`}
-              title={tool.description}
-            >
-              <tool.icon size={18} />
-              {tool.isSpecial && (
-                <span className="text-xs font-medium">{tool.name}</span>
-              )}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Shapes Toggle */}
-      <div className="mb-4">
-        <button
-          onClick={() => setShowShapes(!showShapes)}
-          className="w-full p-2 bg-slate-700/50 text-slate-300 rounded-lg hover:bg-slate-600/50 transition-all flex items-center justify-center gap-2"
-        >
-          <Square size={16} />
-          {showShapes ? 'Hide' : 'Show'} Shapes
-        </button>
-        
-        {showShapes && (
-          <div className="mt-2 grid grid-cols-4 gap-2">
-            {shapes.map((shape) => (
-              <button
-                key={shape.id}
-                onClick={() => onToolSelect(shape.id)}
-                className={`p-2 rounded-lg transition-all ${
-                  currentTool === shape.id
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-slate-700/50 text-slate-300 hover:bg-slate-600/50'
-                }`}
-                title={shape.description}
-              >
-                <shape.icon size={18} />
-              </button>
-            ))}
+    <div
+      className={`relative bg-slate-900/90 backdrop-blur-md border border-slate-700/60 rounded-2xl shadow-2xl transition-all duration-200 ${
+        isCollapsed ? 'p-4' : 'p-6'
+      }`}
+      style={containerStyle}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 text-slate-200">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-blue-500/30 bg-blue-500/20">
+            <Beaker size={18} className="text-blue-300" />
           </div>
-        )}
-      </div>
-
-      {/* Color Palette */}
-      <div className="mb-4">
-        <h3 className="text-sm font-semibold text-slate-300 mb-2">Colors</h3>
-        <div className="grid grid-cols-6 gap-2">
-          {colors.map((color) => (
+          <div className="flex flex-col">
+            <span className="text-sm font-semibold uppercase tracking-wide">Chemistry Tools</span>
+            <span className="text-xs text-slate-400">Precision drawing kit</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {widthLabel && !isCollapsed && (
+            <span className="hidden text-[11px] text-slate-400 sm:inline">{widthLabel}</span>
+          )}
+          {onToggleCollapse && (
             <button
-              key={color}
-              onClick={() => onColorChange(color)}
-              className={`w-8 h-8 rounded-lg border-2 transition-all ${
-                currentColor === color ? 'border-white' : 'border-slate-600'
-              }`}
-              style={{ backgroundColor: color }}
-              title={`Color: ${color}`}
+              type="button"
+              onClick={onToggleCollapse}
+              className="rounded-lg border border-slate-700/60 bg-slate-800/70 p-2 text-slate-300 transition-all hover:bg-slate-700/60"
+              title={isCollapsed ? 'Expand toolbar' : 'Collapse toolbar'}
+            >
+              {isCollapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div
+        className={`overflow-hidden transition-[max-height,opacity] duration-200 ease-in-out ${
+          isCollapsed ? 'max-h-0 opacity-0 pointer-events-none' : 'mt-4 max-h-[4000px] opacity-100'
+        }`}
+        aria-hidden={isCollapsed}
+      >
+        <div className="space-y-6">
+          {/* Chemistry Tools */}
+          <section className="space-y-3">
+            <div className="flex items-center gap-2 text-slate-200">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-blue-500/30 bg-blue-500/15">
+                <Grid3X3 size={16} className="text-blue-300" />
+              </div>
+              <h3 className="text-sm font-semibold text-slate-300">Tool Palette</h3>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              {chemistryTools.map((tool) => (
+                <button
+                  key={tool.id}
+                  onClick={() => {
+                    if (tool.isSpecial && tool.id === 'calculator' && onOpenCalculator) {
+                      onOpenCalculator();
+                    } else if (tool.isSpecial && tool.id === 'molview' && onOpenMolView) {
+                      onOpenMolView();
+                    } else if (tool.isSpecial && tool.id === 'periodic' && onOpenPeriodicTable) {
+                      onOpenPeriodicTable();
+                    } else if (tool.isSpecial && tool.id === 'molecules' && onOpenMoleculeSearch) {
+                      onOpenMoleculeSearch();
+                    } else if (tool.isSpecial && tool.id === 'widgets' && onOpenChemistryWidgets) {
+                      onOpenChemistryWidgets();
+                    } else {
+                      onToolSelect(tool.id);
+                    }
+                  }}
+                  className={`group flex h-20 flex-col items-center justify-center gap-2 rounded-xl border border-slate-700/60 px-3 text-[13px] font-medium transition-all ${
+                    tool.isSpecial
+                      ? 'border-primary/60 bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20 hover:bg-primary'
+                      : currentTool === tool.id
+                        ? 'border-primary/60 bg-primary/80 text-primary-foreground shadow-lg shadow-primary/10'
+                        : 'bg-slate-800/60 text-slate-200 hover:bg-slate-700/60 hover:border-slate-500'
+                  }`}
+                  title={tool.description}
+                >
+                  <tool.icon size={20} className="transition-transform group-hover:scale-105" />
+                  {tool.isSpecial && (
+                    <span className="text-[11px] font-medium text-center leading-tight">
+                      {tool.name}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          {/* Shapes Toggle */}
+          <section className="space-y-3">
+            <button
+              onClick={() => setShowShapes(!showShapes)}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-700/60 bg-slate-800/70 px-3 py-3 text-sm font-medium text-slate-200 transition-all hover:bg-slate-700/60"
+            >
+              <Square size={16} className="text-blue-300" />
+              {showShapes ? 'Hide' : 'Show'} Shapes
+            </button>
+            
+            {showShapes && (
+              <div className="grid grid-cols-4 gap-3">
+                {shapes.map((shape) => (
+                  <button
+                    key={shape.id}
+                    onClick={() => onToolSelect(shape.id)}
+                    className={`flex h-12 items-center justify-center rounded-xl border border-slate-700/60 transition-all ${
+                      currentTool === shape.id
+                        ? 'border-primary/60 bg-primary/80 text-white shadow-lg shadow-primary/20'
+                        : 'bg-slate-800/60 text-slate-200 hover:bg-slate-700/60 hover:border-slate-500'
+                    }`}
+                    title={shape.description}
+                  >
+                    <shape.icon size={18} />
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {/* Stroke & Fill */}
+          <section className="space-y-3">
+            <h3 className="text-sm font-semibold text-slate-300">Stroke &amp; Fill</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Stroke</p>
+                <div className="grid grid-cols-6 gap-2">
+                  {colors.map((color) => (
+                    <button
+                      key={`stroke-${color}`}
+                      onClick={() => onStrokeColorChange(color)}
+                      className={`h-9 w-9 rounded-xl border-2 transition-all shadow-sm ${
+                        strokeColor === color ? 'border-white' : 'border-slate-600'
+                      }`}
+                      style={{ backgroundColor: color }}
+                      title={`Stroke: ${color}`}
+                    />
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <p className="flex items-center justify-between text-xs font-medium uppercase tracking-wide text-slate-400">
+                  <span>Fill</span>
+                  <button
+                    type="button"
+                    onClick={() => onFillToggle(!fillEnabled)}
+                    className={`rounded-full px-2 py-1 text-[10px] font-semibold uppercase transition-all ${
+                      fillEnabled ? 'bg-primary/80 text-white' : 'bg-slate-800/80 text-slate-300'
+                    }`}
+                  >
+                    {fillEnabled ? 'On' : 'Off'}
+                  </button>
+                </p>
+                <div className="grid grid-cols-6 gap-2">
+                  {colors.map((color) => (
+                    <button
+                      key={`fill-${color}`}
+                      onClick={() => onFillColorChange(color)}
+                      className={`h-9 w-9 rounded-xl border-2 transition-all shadow-sm ${
+                        fillColor === color ? 'border-white' : 'border-slate-600'
+                      } ${fillEnabled ? '' : 'opacity-40'}`}
+                      style={{ backgroundColor: color }}
+                      title={`Fill: ${color}`}
+                      disabled={!fillEnabled}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Brush Size */}
+          <section className="space-y-3">
+            <h3 className="text-sm font-semibold text-slate-300">Brush Size</h3>
+            <input
+              type="range"
+              min="1"
+              max="20"
+              value={currentSize}
+              onChange={(e) => onSizeChange(Number(e.target.value))}
+              className="slider-thumb h-2 w-full cursor-pointer appearance-none rounded-lg bg-slate-700"
             />
-          ))}
+            <div className="mt-1 text-center text-xs text-slate-400">{currentSize}px</div>
+          </section>
+
+          {/* Resize Toolbar */}
+          <section className="space-y-3">
+            <h3 className="text-sm font-semibold text-slate-300">Resize &amp; Rotate</h3>
+            <div className="rounded-2xl border border-slate-700/60 bg-slate-800/70 p-3">
+              <ResizeToolbar
+                onShapeResize={onShapeResize}
+                onShapeRotate={onShapeRotate}
+              />
+            </div>
+          </section>
+
+          {/* Quick Actions */}
+          <section className="space-y-3 border-t border-slate-700/60 pt-4">
+            <h3 className="text-sm font-semibold text-slate-300">Quick Actions</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => onToolSelect('text')}
+                className={`flex h-16 flex-col items-center justify-center gap-2 rounded-xl border border-slate-700/60 text-sm font-medium transition-all ${
+                  currentTool === 'text'
+                    ? 'border-primary/60 bg-primary/80 text-white shadow-lg shadow-primary/20'
+                    : 'bg-slate-800/60 text-slate-200 hover:bg-slate-700/60 hover:border-slate-500'
+                }`}
+              >
+                <Type size={16} className="mx-auto" />
+                Text
+              </button>
+              <button
+                onClick={() => onToolSelect('eraser')}
+                className={`flex h-16 flex-col items-center justify-center gap-2 rounded-xl border border-slate-700/60 text-sm font-medium transition-all ${
+                  currentTool === 'eraser'
+                    ? 'border-primary/60 bg-primary/80 text-white shadow-lg shadow-primary/20'
+                    : 'bg-slate-800/60 text-slate-200 hover:bg-slate-700/60 hover:border-slate-500'
+                }`}
+              >
+                <Square size={16} className="mx-auto" />
+                Eraser
+              </button>
+            </div>
+          </section>
         </div>
       </div>
 
-      {/* Brush Size */}
-      <div className="mb-4">
-        <h3 className="text-sm font-semibold text-slate-300 mb-2">Brush Size</h3>
-        <input
-          type="range"
-          min="1"
-          max="20"
-          value={currentSize}
-          onChange={(e) => onSizeChange(Number(e.target.value))}
-          className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer slider-thumb"
-        />
-        <div className="text-xs text-slate-400 mt-1 text-center">{currentSize}px</div>
-      </div>
-
-      {/* Resize Toolbar */}
-      <ResizeToolbar
-        onShapeResize={onShapeResize}
-        onShapeRotate={onShapeRotate}
-      />
-
-      {/* Quick Actions */}
-      <div className="border-t border-slate-700/50 pt-3">
-        <h3 className="text-sm font-semibold text-slate-300 mb-2">Quick Actions</h3>
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            onClick={() => onToolSelect('text')}
-            className={`p-2 rounded-lg transition-all text-xs ${
-              currentTool === 'text'
-                ? 'bg-blue-600 text-white'
-                : 'bg-slate-700/50 text-slate-300 hover:bg-slate-600/50'
-            }`}
-          >
-            <Type size={14} className="mx-auto mb-1" />
-            Text
-          </button>
-          <button
-            onClick={() => onToolSelect('eraser')}
-            className={`p-2 rounded-lg transition-all text-xs ${
-              currentTool === 'eraser'
-                ? 'bg-blue-600 text-white'
-                : 'bg-slate-700/50 text-slate-300 hover:bg-slate-600/50'
-            }`}
-          >
-            <Square size={14} className="mx-auto mb-1" />
-            Eraser
-          </button>
+      {onResizeStart && (
+        <div
+          className="absolute right-[-10px] top-12 bottom-12 hidden w-4 cursor-col-resize items-center justify-center rounded-full border border-slate-700/60 bg-slate-800/70 transition-colors hover:bg-slate-700/70 sm:flex"
+          onMouseDown={onResizeStart}
+          title="Drag to resize"
+          role="presentation"
+        >
+          <GripVertical size={14} className="text-slate-400" />
         </div>
-      </div>
+      )}
     </div>
   );
 };
 
 export default ChemistryToolbar;
+

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FileText, Settings, Search, Atom, Sparkles, Beaker, FlaskConical, Edit3, Palette, MessageSquare, BookOpen, User, Plus, File, Video, Globe, Upload, Clipboard, Headphones, LineChart, Target } from 'lucide-react';
+import { FileText, Settings, Search, Atom, Sparkles, Beaker, FlaskConical, Edit3, Palette, MessageSquare, BookOpen, User, Plus, File, Video, Globe, Upload, Clipboard, Headphones, LineChart, Target, X } from 'lucide-react';
 import Canvas from './components/Canvas';
 import AIChat from './components/AIChat';
 import LlamaChat from './components/LlamaChat';
@@ -783,7 +783,7 @@ Here is the learner's question: ${message}`
                     onClick={() => setDocumentViewerOpen(false)}
                     className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-8 w-8"
                   >
-                    ✕
+                    <X className="h-4 w-4" />
                   </button>
                 </div>
               </div>
@@ -1112,7 +1112,7 @@ Here is the learner's question: ${message}`
                             className="ml-2 p-2 hover:bg-red-100 hover:text-red-600 rounded-lg text-muted-foreground hover:text-foreground transition-all duration-200"
                             title="Remove source"
                           >
-                            ✕
+                            <X className="h-4 w-4" />
                           </button>
                         </div>
                       </div>
@@ -1152,7 +1152,7 @@ Here is the learner's question: ${message}`
               
               {/* Chat Start Button - Floating */}
               {!showChatPanel && !showNmrFullscreen && !showSrlCoachWorkspace && (
-                <div className="absolute top-4 right-4 z-10">
+                <div className="absolute top-28 right-8 z-10">
                   <button
                     onClick={() => {
                       console.log('Starting chat panel...');
@@ -1211,7 +1211,7 @@ Here is the learner's question: ${message}`
                         className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-8 w-8"
                             aria-label="Close chat"
                       >
-                        ✕
+                        <X className="h-4 w-4" />
                       </button>
                     </div>
                   </div>
@@ -1505,3 +1505,4 @@ Here is the learner's question: ${message}`
 };
 
 export default App;
+

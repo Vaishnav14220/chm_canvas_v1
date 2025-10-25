@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState } from 'react';
-import { ZoomIn, ZoomOut, Grid3x3, RotateCcw, CheckCircle, AlertCircle, Loader2, Trash2, Brain, Sparkles, Atom, Beaker } from 'lucide-react';
+import type { MouseEvent as ReactMouseEvent } from 'react';
+import { ZoomIn, ZoomOut, Grid3x3, RotateCcw, CheckCircle, AlertCircle, Loader2, Trash2, Brain, Sparkles, Atom, Beaker, Moon, Sun, Lightbulb } from 'lucide-react';
 import { analyzeCanvasWithLLM, getStoredAPIKey, type Correction, type CanvasAnalysisResult } from '../services/canvasAnalyzer';
 import { convertCanvasToChemistry } from '../services/chemistryConverter';
 import MoleculeSearch from './MoleculeSearch';
@@ -7,6 +8,9 @@ import { type MoleculeData, parseSDF, drawSDF2DStructure, type ParsedSDF } from 
 import ChemistryToolbar from './ChemistryToolbar';
 import ChemistryStructureViewer from './ChemistryStructureViewer';
 import ChemistryWidgetPanel from './ChemistryWidgetPanel';
+
+const MIN_TOOLBAR_WIDTH = 280;
+const MAX_TOOLBAR_WIDTH = 480;
 
 interface CanvasProps {
   currentTool: string;
@@ -38,9 +42,16 @@ export default function Canvas({
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<CanvasAnalysisResult | null>(null);
   const [showChemistryToolbar, setShowChemistryToolbar] = useState(true);
+  const [isToolbarCollapsed, setIsToolbarCollapsed] = useState(false);
+  const [toolbarWidth, setToolbarWidth] = useState(360);
+  const [isResizingToolbar, setIsResizingToolbar] = useState(false);
+  const toolbarResizeStateRef = useRef<{ startX: number; startWidth: number }>({ startX: 0, startWidth: 360 });
   const [chemistryTool, setChemistryTool] = useState('draw');
   const [chemistryColor, setChemistryColor] = useState('#3b82f6');
+  const [chemistryStrokeColor, setChemistryStrokeColor] = useState('#3b82f6');
   const [chemistrySize, setChemistrySize] = useState(2);
+  const [chemistryFillEnabled, setChemistryFillEnabled] = useState(true);
+  const [chemistryFillColor, setChemistryFillColor] = useState('#3b82f6');
   const [showChemistryViewer, setShowChemistryViewer] = useState(false);
   const [chemistryStructure, setChemistryStructure] = useState<any>(null);
   const [isConverting, setIsConverting] = useState(false);
@@ -75,6 +86,9 @@ export default function Canvas({
     endX: number;
     endY: number;
     color: string;
+    strokeColor?: string;
+    fillColor?: string;
+    fillEnabled?: boolean;
     size: number;
     rotation: number;  // Rotation in degrees (0-360)
     // Molecule-specific properties
@@ -103,6 +117,20 @@ export default function Canvas({
   const [resizeStartY, setResizeStartY] = useState(0);
   const [resizeStartWidth, setResizeStartWidth] = useState(0);
   const [resizeStartHeight, setResizeStartHeight] = useState(0);
+  const [areaEraseSelection, setAreaEraseSelection] = useState<{
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+    isActive: boolean;
+  } | null>(null);
+
+  const FILLABLE_SHAPES = new Set(['circle', 'square', 'triangle', 'hexagon']);
+
+  const handleChemistryStrokeColorChange = (color: string) => {
+    setChemistryStrokeColor(color);
+    setChemistryColor(color);
+  };
 
   // Intelligent color picker based on canvas background
   const getOptimalPenColor = () => {
@@ -111,8 +139,42 @@ export default function Canvas({
 
   // Update pen color when canvas background changes
   useEffect(() => {
-    setChemistryColor(getOptimalPenColor());
+    const optimalColor = getOptimalPenColor();
+    setChemistryColor(optimalColor);
+    setChemistryStrokeColor(optimalColor);
+    setChemistryFillColor(optimalColor);
   }, [canvasBackground]);
+
+  useEffect(() => {
+    if (!isResizingToolbar) {
+      return;
+    }
+
+    const handleMouseMove = (event: MouseEvent) => {
+      const delta = event.clientX - toolbarResizeStateRef.current.startX;
+      const proposedWidth = toolbarResizeStateRef.current.startWidth + delta;
+      const clampedWidth = Math.min(Math.max(proposedWidth, MIN_TOOLBAR_WIDTH), MAX_TOOLBAR_WIDTH);
+      setToolbarWidth(clampedWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizingToolbar(false);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizingToolbar]);
+
+  useEffect(() => {
+    if (!showChemistryToolbar) {
+      setIsResizingToolbar(false);
+    }
+  }, [showChemistryToolbar]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -136,7 +198,11 @@ export default function Canvas({
 
     // Redraw all saved shapes
     redrawAllShapes(ctx);
-  }, [showGrid, canvasBackground, shapes, forceRedraw]);
+
+    if (areaEraseSelection?.isActive) {
+      drawAreaEraseOverlay(ctx, areaEraseSelection);
+    }
+  }, [showGrid, canvasBackground, shapes, forceRedraw, areaEraseSelection]);
 
   const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
     // Adjust grid color based on canvas background
@@ -158,6 +224,51 @@ export default function Canvas({
       ctx.lineTo(width, y);
         ctx.stroke();
       }
+  };
+
+  const getShapeBounds = (shape: Shape) => {
+    const minX = Math.min(shape.startX, shape.endX);
+    const maxX = Math.max(shape.startX, shape.endX);
+    const minY = Math.min(shape.startY, shape.endY);
+    const maxY = Math.max(shape.startY, shape.endY);
+    return { minX, minY, maxX, maxY };
+  };
+
+  const doesShapeIntersectRect = (
+    shape: Shape,
+    rect: { minX: number; minY: number; maxX: number; maxY: number }
+  ) => {
+    const bounds = getShapeBounds(shape);
+    return !(
+      bounds.maxX < rect.minX ||
+      bounds.minX > rect.maxX ||
+      bounds.maxY < rect.minY ||
+      bounds.minY > rect.maxY
+    );
+  };
+
+  const isPointWithinShape = (shape: Shape, x: number, y: number) => {
+    const bounds = getShapeBounds(shape);
+    return x >= bounds.minX && x <= bounds.maxX && y >= bounds.minY && y <= bounds.maxY;
+  };
+
+  const drawAreaEraseOverlay = (
+    ctx: CanvasRenderingContext2D,
+    selection: { startX: number; startY: number; currentX: number; currentY: number }
+  ) => {
+    const minX = Math.min(selection.startX, selection.currentX);
+    const minY = Math.min(selection.startY, selection.currentY);
+    const width = Math.abs(selection.currentX - selection.startX);
+    const height = Math.abs(selection.currentY - selection.startY);
+
+    ctx.save();
+    ctx.strokeStyle = '#f87171';
+    ctx.fillStyle = 'rgba(248, 113, 113, 0.15)';
+    ctx.setLineDash([6, 6]);
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(minX, minY, width, height);
+    ctx.fillRect(minX, minY, width, height);
+    ctx.restore();
   };
 
   // Helper function to detect which resize handle is being clicked
@@ -205,6 +316,18 @@ export default function Canvas({
     const y = (e.clientY - rect.top) / zoom;
 
     const activeTool = showChemistryToolbar ? chemistryTool : currentTool;
+
+    if (activeTool === 'eraser' && e.shiftKey) {
+      setAreaEraseSelection({
+        startX: x,
+        startY: y,
+        currentX: x,
+        currentY: y,
+        isActive: true
+      });
+      setIsDrawing(false);
+      return;
+    }
 
     // Handle Rotate tool - rotate existing shapes (right-click)
     if (activeTool === 'rotate' && (e.button === 2 || e.ctrlKey)) {
@@ -303,9 +426,23 @@ export default function Canvas({
     const x = (e.clientX - rect.left) / zoom;
     const y = (e.clientY - rect.top) / zoom;
 
+    if (areaEraseSelection?.isActive) {
+      setAreaEraseSelection(prev =>
+        prev ? { ...prev, currentX: x, currentY: y } : prev
+      );
+      return;
+    }
+
     const activeTool = showChemistryToolbar ? chemistryTool : currentTool;
-    const activeColor = showChemistryToolbar ? chemistryColor : strokeColor;
+    const activeStrokeColor = showChemistryToolbar ? chemistryStrokeColor : strokeColor;
+    const activeFillColor = showChemistryToolbar ? chemistryFillColor : activeStrokeColor;
+    const activeFillEnabled = showChemistryToolbar ? chemistryFillEnabled : true;
+    const activeColor = activeStrokeColor;
     const activeSize = showChemistryToolbar ? chemistrySize : strokeWidth;
+    const fillConfig = {
+      fillColor: activeFillColor,
+      fillEnabled: activeFillEnabled && FILLABLE_SHAPES.has(activeTool),
+    };
 
     // Handle moving existing shape
     if (isDraggingShape && selectedShapeId) {
@@ -432,19 +569,19 @@ export default function Canvas({
       
       // Draw preview based on active tool
       if (activeTool === 'arrow') {
-        drawArrow(ctx, arrowState.startX, arrowState.startY, x, y, activeSize, activeColor);
+        drawArrow(ctx, arrowState.startX, arrowState.startY, x, y, activeSize, activeStrokeColor);
       } else if (activeTool === 'circle') {
-        drawCircle(ctx, centerX, centerY, distance / 2, activeColor);
+        drawCircle(ctx, centerX, centerY, distance / 2, activeStrokeColor, fillConfig);
       } else if (activeTool === 'square') {
-        drawSquare(ctx, centerX, centerY, distance, activeColor);
+        drawSquare(ctx, centerX, centerY, distance, activeStrokeColor, fillConfig);
       } else if (activeTool === 'triangle') {
-        drawTriangle(ctx, centerX, centerY, distance, activeColor);
+        drawTriangle(ctx, centerX, centerY, distance, activeStrokeColor, fillConfig);
       } else if (activeTool === 'hexagon') {
-        drawHexagon(ctx, centerX, centerY, distance / 2, activeColor);
+        drawHexagon(ctx, centerX, centerY, distance / 2, activeStrokeColor, fillConfig);
       } else if (activeTool === 'plus') {
-        drawPlus(ctx, centerX, centerY, distance / 2, activeSize, activeColor);
+        drawPlus(ctx, centerX, centerY, distance / 2, activeSize, activeStrokeColor);
       } else if (activeTool === 'minus') {
-        drawMinus(ctx, centerX, centerY, distance / 2, activeSize, activeColor);
+        drawMinus(ctx, centerX, centerY, distance / 2, activeSize, activeStrokeColor);
       }
       return;
     }
@@ -453,9 +590,13 @@ export default function Canvas({
     if (!isDrawing) return;
 
     // Use chemistry tool settings if chemistry toolbar is active
-    const activeColorNormal = showChemistryToolbar ? chemistryColor : strokeColor;
+    const activeColorNormal = activeStrokeColor;
     const activeSizeNormal = showChemistryToolbar ? chemistrySize : strokeWidth;
     const activeToolNormal = showChemistryToolbar ? chemistryTool : currentTool;
+    const fillConfigNormal = {
+      fillColor: activeFillColor,
+      fillEnabled: activeFillEnabled && FILLABLE_SHAPES.has(activeToolNormal),
+    };
 
     if (activeToolNormal === 'pen' || activeToolNormal === 'draw') {
       ctx.strokeStyle = activeColorNormal;
@@ -481,13 +622,13 @@ export default function Canvas({
     } else if (activeToolNormal === 'electron') {
       drawElectron(ctx, x, y, activeSizeNormal, activeColorNormal);
     } else if (activeToolNormal === 'circle') {
-      drawCircle(ctx, x, y, activeSizeNormal * 3, activeColorNormal);
+      drawCircle(ctx, x, y, activeSizeNormal * 3, activeColorNormal, fillConfigNormal);
     } else if (activeToolNormal === 'square') {
-      drawSquare(ctx, x, y, activeSizeNormal * 3, activeColorNormal);
+      drawSquare(ctx, x, y, activeSizeNormal * 3, activeColorNormal, fillConfigNormal);
     } else if (activeToolNormal === 'triangle') {
-      drawTriangle(ctx, x, y, activeSizeNormal * 3, activeColorNormal);
+      drawTriangle(ctx, x, y, activeSizeNormal * 3, activeColorNormal, fillConfigNormal);
     } else if (activeToolNormal === 'hexagon') {
-      drawHexagon(ctx, x, y, activeSizeNormal * 3, activeColorNormal);
+      drawHexagon(ctx, x, y, activeSizeNormal * 3, activeColorNormal, fillConfigNormal);
     }
 
     setLastX(x);
@@ -495,6 +636,12 @@ export default function Canvas({
   };
 
   // Chemistry drawing functions
+  interface ShapeDrawOptions {
+    fillColor?: string;
+    fillEnabled?: boolean;
+    strokeWidth?: number;
+  }
+
   const drawAtom = (ctx: CanvasRenderingContext2D, x: number, y: number, size: number, color: string) => {
     ctx.fillStyle = color;
     ctx.beginPath();
@@ -545,34 +692,58 @@ export default function Canvas({
     ctx.fill();
   };
 
-  const drawCircle = (ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, color: string) => {
-    ctx.fillStyle = color;
+  const drawCircle = (
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    radius: number,
+    color: string,
+    options?: ShapeDrawOptions
+  ) => {
     ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = options?.strokeWidth ?? 2;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.beginPath();
     ctx.arc(x, y, radius, 0, 2 * Math.PI);
-    ctx.fill();
+    if (options?.fillEnabled !== false) {
+      ctx.fillStyle = options?.fillColor ?? color;
+      ctx.fill();
+    }
     ctx.stroke();
   };
 
-  const drawSquare = (ctx: CanvasRenderingContext2D, x: number, y: number, size: number, color: string) => {
-    ctx.fillStyle = color;
+  const drawSquare = (
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    size: number,
+    color: string,
+    options?: ShapeDrawOptions
+  ) => {
     ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = options?.strokeWidth ?? 2;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.beginPath();
     ctx.rect(x - size/2, y - size/2, size, size);
-    ctx.fill();
+    if (options?.fillEnabled !== false) {
+      ctx.fillStyle = options?.fillColor ?? color;
+      ctx.fill();
+    }
     ctx.stroke();
   };
 
-  const drawTriangle = (ctx: CanvasRenderingContext2D, x: number, y: number, size: number, color: string) => {
-    ctx.fillStyle = color;
+  const drawTriangle = (
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    size: number,
+    color: string,
+    options?: ShapeDrawOptions
+  ) => {
     ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = options?.strokeWidth ?? 2;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.beginPath();
@@ -580,14 +751,23 @@ export default function Canvas({
     ctx.lineTo(x - size/2, y + size/2);
     ctx.lineTo(x + size/2, y + size/2);
     ctx.closePath();
-    ctx.fill();
+    if (options?.fillEnabled !== false) {
+      ctx.fillStyle = options?.fillColor ?? color;
+      ctx.fill();
+    }
     ctx.stroke();
   };
 
-  const drawHexagon = (ctx: CanvasRenderingContext2D, x: number, y: number, size: number, color: string) => {
-    ctx.fillStyle = color;
+  const drawHexagon = (
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    size: number,
+    color: string,
+    options?: ShapeDrawOptions
+  ) => {
     ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
+    ctx.lineWidth = options?.strokeWidth ?? 2;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.beginPath();
@@ -602,7 +782,10 @@ export default function Canvas({
       }
     }
     ctx.closePath();
-    ctx.fill();
+    if (options?.fillEnabled !== false) {
+      ctx.fillStyle = options?.fillColor ?? color;
+      ctx.fill();
+    }
     ctx.stroke();
   };
 
@@ -789,6 +972,42 @@ export default function Canvas({
   };
 
   const stopDrawing = () => {
+    if (areaEraseSelection?.isActive) {
+      const { startX, startY, currentX, currentY } = areaEraseSelection;
+      const minX = Math.min(startX, currentX);
+      const maxX = Math.max(startX, currentX);
+      const minY = Math.min(startY, currentY);
+      const maxY = Math.max(startY, currentY);
+      const width = maxX - minX;
+      const height = maxY - minY;
+
+      let updatedShapes = canvasHistoryRef.current;
+      if (width < 5 && height < 5) {
+        for (let i = canvasHistoryRef.current.length - 1; i >= 0; i--) {
+          const shape = canvasHistoryRef.current[i];
+          if (isPointWithinShape(shape, startX, startY)) {
+            updatedShapes = canvasHistoryRef.current.filter((_, index) => index !== i);
+            break;
+          }
+        }
+      } else {
+        const selectionRect = { minX, minY, maxX, maxY };
+        updatedShapes = canvasHistoryRef.current.filter(
+          (shape) => !doesShapeIntersectRect(shape, selectionRect)
+        );
+      }
+
+      if (updatedShapes.length !== canvasHistoryRef.current.length) {
+        setShapes(updatedShapes);
+        canvasHistoryRef.current = updatedShapes;
+        setSelectedShapeId(null);
+      }
+
+      setAreaEraseSelection(null);
+      setIsDrawing(false);
+      return;
+    }
+
     // Stop rotating shape
     if (isRotatingShape) {
       setIsRotatingShape(false);
@@ -814,7 +1033,10 @@ export default function Canvas({
     // Save shape if it was being drawn
     if (arrowState && arrowState.isDrawing) {
       const activeTool = showChemistryToolbar ? chemistryTool : currentTool;
-      const activeColor = showChemistryToolbar ? chemistryColor : strokeColor;
+      const activeStroke = showChemistryToolbar ? chemistryStrokeColor : strokeColor;
+      const activeFill = showChemistryToolbar ? chemistryFillColor : activeStroke;
+      const fillEnabled =
+        showChemistryToolbar ? chemistryFillEnabled && FILLABLE_SHAPES.has(activeTool) : FILLABLE_SHAPES.has(activeTool);
       const activeSize = showChemistryToolbar ? chemistrySize : strokeWidth;
 
       // Create shape object
@@ -825,7 +1047,10 @@ export default function Canvas({
         startY: arrowState.startY,
         endX: arrowState.endX,
         endY: arrowState.endY,
-        color: activeColor,
+        color: activeStroke,
+        strokeColor: activeStroke,
+        fillColor: fillEnabled ? activeFill : undefined,
+        fillEnabled,
         size: activeSize,
         rotation: 0 // Default rotation
       };
@@ -863,20 +1088,28 @@ export default function Canvas({
         ctx.translate(-centerX, -centerY);
       }
 
+      const strokeColor = shape.strokeColor ?? shape.color;
+      const shapeSupportsFill = FILLABLE_SHAPES.has(shape.type);
+      const fillEnabled = shapeSupportsFill && shape.fillEnabled !== false;
+      const fillOptions: ShapeDrawOptions = {
+        fillColor: fillEnabled ? shape.fillColor ?? strokeColor : undefined,
+        fillEnabled,
+      };
+
       if (shape.type === 'arrow') {
-        drawArrow(ctx, shape.startX, shape.startY, shape.endX, shape.endY, shape.size, shape.color);
+        drawArrow(ctx, shape.startX, shape.startY, shape.endX, shape.endY, shape.size, strokeColor);
       } else if (shape.type === 'circle') {
-        drawCircle(ctx, centerX, centerY, distance / 2, shape.color);
+        drawCircle(ctx, centerX, centerY, distance / 2, strokeColor, fillOptions);
       } else if (shape.type === 'square') {
-        drawSquare(ctx, centerX, centerY, distance, shape.color);
+        drawSquare(ctx, centerX, centerY, distance, strokeColor, fillOptions);
       } else if (shape.type === 'triangle') {
-        drawTriangle(ctx, centerX, centerY, distance, shape.color);
+        drawTriangle(ctx, centerX, centerY, distance, strokeColor, fillOptions);
       } else if (shape.type === 'hexagon') {
-        drawHexagon(ctx, centerX, centerY, distance / 2, shape.color);
+        drawHexagon(ctx, centerX, centerY, distance / 2, strokeColor, fillOptions);
       } else if (shape.type === 'plus') {
-        drawPlus(ctx, centerX, centerY, distance / 2, shape.size, shape.color);
+        drawPlus(ctx, centerX, centerY, distance / 2, shape.size, strokeColor);
       } else if (shape.type === 'minus') {
-        drawMinus(ctx, centerX, centerY, distance / 2, shape.size, shape.color);
+        drawMinus(ctx, centerX, centerY, distance / 2, shape.size, strokeColor);
       } else if (shape.type === 'molecule') {
         drawMolecule(ctx, shape);
       }
@@ -991,12 +1224,18 @@ export default function Canvas({
     const { x, y } = getTouchPos(e);
 
     // Use chemistry tool settings if chemistry toolbar is active
-    const activeColor = showChemistryToolbar ? chemistryColor : strokeColor;
+    const activeStrokeColor = showChemistryToolbar ? chemistryStrokeColor : strokeColor;
+    const activeFillColor = showChemistryToolbar ? chemistryFillColor : activeStrokeColor;
+    const activeFillEnabled = showChemistryToolbar ? chemistryFillEnabled : true;
     const activeSize = showChemistryToolbar ? chemistrySize : strokeWidth;
     const activeTool = showChemistryToolbar ? chemistryTool : currentTool;
+    const fillConfig = {
+      fillColor: activeFillColor,
+      fillEnabled: activeFillEnabled && FILLABLE_SHAPES.has(activeTool),
+    };
 
     if (activeTool === 'pen' || activeTool === 'draw') {
-      ctx.strokeStyle = activeColor;
+      ctx.strokeStyle = activeStrokeColor;
       ctx.lineWidth = activeSize;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
@@ -1013,21 +1252,21 @@ export default function Canvas({
       
       ctx.globalCompositeOperation = 'source-over';
     } else if (activeTool === 'atom') {
-      drawAtom(ctx, x, y, activeSize, activeColor);
+      drawAtom(ctx, x, y, activeSize, activeStrokeColor);
     } else if (activeTool === 'bond') {
-      drawBond(ctx, lastX, lastY, x, y, activeSize, activeColor);
+      drawBond(ctx, lastX, lastY, x, y, activeSize, activeStrokeColor);
     } else if (activeTool === 'arrow') {
-      drawArrow(ctx, lastX, lastY, x, y, activeSize, activeColor);
+      drawArrow(ctx, lastX, lastY, x, y, activeSize, activeStrokeColor);
     } else if (activeTool === 'electron') {
-      drawElectron(ctx, x, y, activeSize, activeColor);
+      drawElectron(ctx, x, y, activeSize, activeStrokeColor);
     } else if (activeTool === 'circle') {
-      drawCircle(ctx, x, y, activeSize * 3, activeColor);
+      drawCircle(ctx, x, y, activeSize * 3, activeStrokeColor, fillConfig);
     } else if (activeTool === 'square') {
-      drawSquare(ctx, x, y, activeSize * 3, activeColor);
+      drawSquare(ctx, x, y, activeSize * 3, activeStrokeColor, fillConfig);
     } else if (activeTool === 'triangle') {
-      drawTriangle(ctx, x, y, activeSize * 3, activeColor);
+      drawTriangle(ctx, x, y, activeSize * 3, activeStrokeColor, fillConfig);
     } else if (activeTool === 'hexagon') {
-      drawHexagon(ctx, x, y, activeSize * 3, activeColor);
+      drawHexagon(ctx, x, y, activeSize * 3, activeStrokeColor, fillConfig);
     }
 
     setLastX(x);
@@ -1143,10 +1382,20 @@ export default function Canvas({
     }
   };
 
+  const handleToolbarResizeStart = (event: ReactMouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    toolbarResizeStateRef.current = {
+      startX: event.clientX,
+      startWidth: toolbarWidth,
+    };
+    setIsResizingToolbar(true);
+  };
+
   return (
     <div className="relative w-full h-full bg-slate-900">
       {/* Chemistry Toolbar Toggle Button */}
-      <div className="absolute top-4 left-4 z-10">
+      <div className="absolute top-8 left-8 z-10">
         <button
           onClick={() => setShowChemistryToolbar(!showChemistryToolbar)}
           className={`p-2 bg-slate-800/90 backdrop-blur-sm border border-slate-700/50 rounded-xl shadow-lg transition-all ${
@@ -1160,11 +1409,17 @@ export default function Canvas({
 
       {/* Chemistry Toolbar */}
       {showChemistryToolbar && (
-        <div className="absolute top-4 left-16 z-10">
+        <div className="absolute top-24 left-8 z-10">
           <ChemistryToolbar
             onToolSelect={setChemistryTool}
             currentTool={chemistryTool}
             onColorChange={setChemistryColor}
+            onStrokeColorChange={handleChemistryStrokeColorChange}
+            strokeColor={chemistryStrokeColor}
+            fillEnabled={chemistryFillEnabled}
+            onFillToggle={setChemistryFillEnabled}
+            fillColor={chemistryFillColor}
+            onFillColorChange={setChemistryFillColor}
             currentColor={chemistryColor}
             onSizeChange={setChemistrySize}
             currentSize={chemistrySize}
@@ -1173,25 +1428,21 @@ export default function Canvas({
             onOpenPeriodicTable={onOpenPeriodicTable}
             onOpenMoleculeSearch={() => setShowMoleculeSearch(true)}
             onOpenChemistryWidgets={() => setShowChemistryWidgetPanel(true)}
+            isCollapsed={isToolbarCollapsed}
+            onToggleCollapse={() => setIsToolbarCollapsed((prev) => !prev)}
+            width={toolbarWidth}
+            onResizeStart={handleToolbarResizeStart}
           />
         </div>
       )}
 
-      {/* Molecule Search Button */}
-      <div className="absolute top-4 right-16 z-10">
-        <button
-          onClick={() => setShowMoleculeSearch(true)}
-          className="p-2 bg-slate-800/90 backdrop-blur-sm border border-slate-700/50 rounded-xl shadow-lg transition-all text-slate-300 hover:bg-slate-700/50"
-          title="Search Molecules"
-        >
-          <Atom size={18} />
-        </button>
-      </div>
-
       {/* Help Instructions - Bottom Left */}
-      <div className="absolute bottom-4 left-4 z-10 bg-slate-800/90 backdrop-blur-sm border border-slate-700/50 rounded-xl p-3 shadow-lg max-w-sm">
+      <div className="absolute bottom-8 left-8 z-10 max-w-sm rounded-xl border border-slate-700/50 bg-slate-800/90 p-4 shadow-lg backdrop-blur-sm">
         <div className="mb-2">
-          <p className="text-xs text-slate-300 font-semibold">💡 Shape Controls:</p>
+          <p className="flex items-center gap-2 text-xs font-semibold text-slate-200">
+            <Lightbulb className="h-4 w-4 text-amber-300" />
+            Shape Controls
+          </p>
         </div>
         <div className="space-y-2">
           <div>
@@ -1214,7 +1465,16 @@ export default function Canvas({
       </div>
 
       {/* Canvas Controls */}
-      <div className="absolute top-4 right-4 z-10 flex flex-col gap-2">
+      <div className="absolute top-8 right-8 z-10 flex flex-col items-end gap-3">
+        <button
+          onClick={() => setShowMoleculeSearch(true)}
+          className="inline-flex items-center gap-2 rounded-xl border border-slate-700/60 bg-slate-800/80 px-4 py-2 text-sm font-medium text-slate-200 shadow-lg transition-all hover:bg-slate-700/60"
+          title="Search Molecules"
+        >
+          <Atom size={18} className="text-blue-300" />
+          <span>Search Molecules</span>
+        </button>
+
         <div className="bg-slate-800/90 backdrop-blur-sm border border-slate-700/50 rounded-xl p-2 shadow-lg">
           <button
             onClick={() => setShowGrid(!showGrid)}
@@ -1234,25 +1494,27 @@ export default function Canvas({
           <div className="flex flex-col gap-1">
             <button
               onClick={() => setCanvasBackground('dark')}
-              className={`p-2 rounded-lg transition-all text-xs font-medium ${
+              className={`flex items-center justify-center gap-2 rounded-lg p-2 text-xs font-medium transition-all ${
                 canvasBackground === 'dark'
                   ? 'bg-primary text-primary-foreground'
                   : 'text-slate-400 hover:bg-slate-700/50'
               }`}
               title="Dark Canvas (Blue/Black)"
             >
-              🌙
+              <Moon className="h-4 w-4" />
+              <span>Dark</span>
             </button>
             <button
               onClick={() => setCanvasBackground('white')}
-              className={`p-2 rounded-lg transition-all text-xs font-medium ${
+              className={`flex items-center justify-center gap-2 rounded-lg p-2 text-xs font-medium transition-all ${
                 canvasBackground === 'white'
                   ? 'bg-primary text-primary-foreground'
                   : 'text-slate-400 hover:bg-slate-700/50'
               }`}
               title="White Canvas"
             >
-              ☀️
+              <Sun className="h-4 w-4" />
+              <span>Light</span>
             </button>
           </div>
         </div>
@@ -1345,7 +1607,7 @@ export default function Canvas({
       </div>
 
       {/* Zoom Indicator */}
-      <div className="absolute bottom-4 left-4 z-10 bg-slate-800/90 backdrop-blur-sm border border-slate-700/50 rounded-lg px-3 py-2 shadow-lg">
+      <div className="absolute bottom-8 right-8 z-10 rounded-lg border border-slate-700/50 bg-slate-800/90 px-3 py-2 shadow-lg backdrop-blur-sm">
         <span className="text-xs font-medium text-slate-300">
           {Math.round(zoom * 100)}%
         </span>
@@ -1541,25 +1803,6 @@ export default function Canvas({
               </div>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Canvas Controls */}
-      {showChemistryToolbar && (
-        <div className="absolute top-4 left-16 z-10">
-          <ChemistryToolbar
-            onToolSelect={setChemistryTool}
-            currentTool={chemistryTool}
-            onColorChange={setChemistryColor}
-            currentColor={chemistryColor}
-            onSizeChange={setChemistrySize}
-            currentSize={chemistrySize}
-            onOpenCalculator={onOpenCalculator}
-            onOpenMolView={onOpenMolView}
-            onOpenPeriodicTable={onOpenPeriodicTable}
-            onOpenMoleculeSearch={() => setShowMoleculeSearch(true)}
-            onOpenChemistryWidgets={() => setShowChemistryWidgetPanel(true)}
-          />
         </div>
       )}
 
