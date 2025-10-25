@@ -13,7 +13,8 @@ export interface MoleculeData {
   svgUrl: string;
   svgData?: string;
   smiles: string;
-  sdfData?: string; // Add SDF data field
+  sdfData?: string; // 2D SDF data
+  sdf3DData?: string; // 3D SDF data
 }
 
 export const fetchCanonicalSmiles = async (input: string): Promise<string | null> => {
@@ -257,13 +258,23 @@ export const fetchMoleculeStructure = async (cid: number): Promise<MoleculeData 
 
     // Fetch SDF (Structure Data Format) for 2D structure rendering
     try {
-      const sdfData = await fetchSDF(cid);
+      const sdfData = await fetchSDF(cid, '2d');
       if (sdfData) {
         moleculeData.sdfData = sdfData;
         console.log(`✅ Retrieved SDF data for ${moleculeData.name}`);
       }
     } catch (sdfError) {
       console.warn(`⚠️ Error fetching SDF: ${sdfError}`);
+    }
+
+    try {
+      const sdf3DData = await fetchSDF(cid, '3d');
+      if (sdf3DData) {
+        moleculeData.sdf3DData = sdf3DData;
+        console.log(`✅ Retrieved 3D SDF data for ${moleculeData.name}`);
+      }
+    } catch (sdf3DError) {
+      console.warn(`⚠️ Error fetching 3D SDF: ${sdf3DError}`);
     }
 
     console.log(`✅ Successfully created molecule data for CID ${cid}: ${moleculeData.name}`);
@@ -441,21 +452,21 @@ export interface ParsedSDF {
 }
 
 // Fetch SDF (Structure Data Format) from PubChem
-export const fetchSDF = async (cid: number): Promise<string | null> => {
+export const fetchSDF = async (cid: number, recordType: '2d' | '3d' = '2d'): Promise<string | null> => {
   try {
-    const sdfUrl = `${PUBCHEM_PUG_URL}/compound/CID/${cid}/SDF?record_type=2d`;
-    console.log(`📊 Fetching SDF for CID ${cid}...`);
+    const sdfUrl = `${PUBCHEM_PUG_URL}/compound/CID/${cid}/SDF?record_type=${recordType}`;
+    console.log(`📊 Fetching ${recordType.toUpperCase()} SDF for CID ${cid}...`);
     
     const response = await fetchWithRetry(sdfUrl);
     if (response && response.ok) {
       const sdfText = await response.text();
-      console.log(`✅ SDF fetched successfully for CID ${cid}`);
+  console.log(`✅ SDF (${recordType.toUpperCase()}) fetched successfully for CID ${cid}`);
       return sdfText;
     }
-    console.warn(`⚠️ Could not fetch SDF for CID ${cid}`);
+  console.warn(`⚠️ Could not fetch ${recordType.toUpperCase()} SDF for CID ${cid}`);
     return null;
   } catch (error) {
-    console.error(`❌ Error fetching SDF:`, error);
+  console.error(`❌ Error fetching ${recordType.toUpperCase()} SDF:`, error);
     return null;
   }
 };
@@ -463,60 +474,68 @@ export const fetchSDF = async (cid: number): Promise<string | null> => {
 // Parse SDF format string into structured data
 export const parseSDF = (sdfText: string): ParsedSDF | null => {
   try {
-    const lines = sdfText.split('\n');
+    const normalized = sdfText.replace(/\r\n?/g, '\n');
+    const lines = normalized.split('\n');
     if (lines.length < 4) return null;
 
     const atoms: AtomData[] = [];
     const bonds: BondData[] = [];
 
-    // Read header line (line 0-2 are header info)
-    // Line 3 contains counts: atoms, bonds
-    const countsLine = lines[3].split(/\s+/);
-    const atomCount = parseInt(countsLine[0]);
-    const bondCount = parseInt(countsLine[1]);
+    const countsTokens = lines[3].trim().split(/\s+/);
+    const atomCount = Number.parseInt(countsTokens[0], 10) || 0;
+    const bondCount = Number.parseInt(countsTokens[1], 10) || 0;
 
-    // Parse atoms (starting at line 4)
-    for (let i = 0; i < atomCount && (4 + i) < lines.length; i++) {
+    const parseFloatSafe = (value: string): number => {
+      const num = Number.parseFloat(value);
+      return Number.isFinite(num) ? num : 0;
+    };
+
+    // Parse atoms (lines 4..4+atomCount)
+    for (let i = 0; i < atomCount && 4 + i < lines.length; i++) {
       const atomLine = lines[4 + i];
-      const parts = atomLine.split(/\s+/);
-      
-      if (parts.length >= 4) {
+      const tokens = atomLine.trim().split(/\s+/);
+
+      if (tokens.length >= 4) {
         atoms.push({
-          x: parseFloat(parts[0]),
-          y: parseFloat(parts[1]),
-          z: parseFloat(parts[2]),
-          element: parts[3],
-          charge: 0,
+          x: parseFloatSafe(tokens[0]),
+          y: parseFloatSafe(tokens[1]),
+          z: parseFloatSafe(tokens[2]),
+          element: tokens[3],
+          charge: 0
         });
       }
     }
 
-    // Parse bonds (starting after atoms)
     const bondsStartLine = 4 + atomCount;
-    for (let i = 0; i < bondCount && (bondsStartLine + i) < lines.length; i++) {
+    for (let i = 0; i < bondCount && bondsStartLine + i < lines.length; i++) {
       const bondLine = lines[bondsStartLine + i];
-      const parts = bondLine.split(/\s+/);
-      
-      if (parts.length >= 3) {
-        bonds.push({
-          from: parseInt(parts[0]) - 1, // Convert to 0-based index
-          to: parseInt(parts[1]) - 1,
-          type: parseInt(parts[2]),
-        });
+      const tokens = bondLine.trim().split(/\s+/);
+
+      if (tokens.length >= 3) {
+        const from = Number.parseInt(tokens[0], 10) - 1;
+        const to = Number.parseInt(tokens[1], 10) - 1;
+        const type = Number.parseInt(tokens[2], 10) || 1;
+
+        if (Number.isFinite(from) && Number.isFinite(to)) {
+          bonds.push({
+            from: Math.max(0, from),
+            to: Math.max(0, to),
+            type
+          });
+        }
       }
     }
 
-    // Extract molecule name from line after bonds (usually line > bondsStartLine + bondCount)
     let moleculeName = 'Unknown';
     for (let i = bondsStartLine + bondCount; i < lines.length; i++) {
       const line = lines[i].trim();
-      if (line && !line.startsWith('>') && !line.includes('M  ') && line.length < 100) {
-        moleculeName = line;
-        break;
-      }
+      if (!line) continue;
+      if (line.startsWith('>') || line.includes('M  ')) continue;
+      moleculeName = line;
+      break;
     }
 
-    console.log(`✅ Parsed SDF: ${atomCount} atoms, ${bondCount} bonds`);
+    console.log(`✅ Parsed SDF: ${atoms.length} atoms, ${bonds.length} bonds`);
     return { atoms, bonds, moleculeName };
   } catch (error) {
     console.error(`❌ Error parsing SDF:`, error);

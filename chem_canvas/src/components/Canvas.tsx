@@ -4,13 +4,26 @@ import { ZoomIn, ZoomOut, Grid3x3, RotateCcw, CheckCircle, AlertCircle, Loader2,
 import { analyzeCanvasWithLLM, getStoredAPIKey, type Correction, type CanvasAnalysisResult } from '../services/canvasAnalyzer';
 import { convertCanvasToChemistry } from '../services/chemistryConverter';
 import MoleculeSearch from './MoleculeSearch';
-import { type MoleculeData, parseSDF, drawSDF2DStructure, type ParsedSDF } from '../services/pubchemService';
+import { type MoleculeData, parseSDF, type ParsedSDF, getMolViewUrl, getMolViewUrlFromSmiles } from '../services/pubchemService';
 import ChemistryToolbar from './ChemistryToolbar';
 import ChemistryStructureViewer from './ChemistryStructureViewer';
 import ChemistryWidgetPanel from './ChemistryWidgetPanel';
 
 const MIN_TOOLBAR_WIDTH = 280;
 const MAX_TOOLBAR_WIDTH = 480;
+const DEFAULT_MOLECULE_3D_ROTATION = { x: -25, y: 35 } as const;
+const ATOM_COLORS: Record<string, string> = {
+  C: '#e2e8f0',
+  H: '#94a3b8',
+  N: '#38bdf8',
+  O: '#f87171',
+  S: '#facc15',
+  P: '#a855f7',
+  Cl: '#34d399',
+  Br: '#f472b6',
+  F: '#22d3ee',
+  I: '#a78bfa'
+};
 
 interface CanvasProps {
   currentTool: string;
@@ -59,7 +72,6 @@ export default function Canvas({
   const [showMoleculeSearch, setShowMoleculeSearch] = useState(false);
   const [forceRedraw, setForceRedraw] = useState(0); // New state for forcing redraw
   const [showChemistryWidgetPanel, setShowChemistryWidgetPanel] = useState(false);
-  const [currentSmiles, setCurrentSmiles] = useState('CCO'); // Default to ethanol
 
   // Arrow drawing state - single resizable arrow
   const [arrowState, setArrowState] = useState<{
@@ -75,7 +87,7 @@ export default function Canvas({
   const moleculeImageCacheRef = useRef<Map<number, HTMLImageElement>>(new Map());
 
   // Cache for parsed SDF structures
-  const sdfCacheRef = useRef<Map<number, ParsedSDF>>(new Map());
+  const sdfCacheRef = useRef<Map<string, ParsedSDF>>(new Map());
 
   // Shape tracking for repositioning
   interface Shape {
@@ -91,32 +103,44 @@ export default function Canvas({
     fillEnabled?: boolean;
     size: number;
     rotation: number;  // Rotation in degrees (0-360)
+    maintainAspect?: boolean;
+    aspectRatio?: number;
+  originalWidth?: number;
+  originalHeight?: number;
     // Molecule-specific properties
-    moleculeData?: {
-      name: string;
-      cid: number;
-      formula: string;
-      weight: number;
-      svgUrl: string;
-      svgData?: string;
-      smiles: string;
+    moleculeData?: MoleculeData & {
+      displayName?: string;
+    };
+    use3D?: boolean;
+    rotation3D?: {
+      x: number;
+      y: number;
     };
   }
 
   const [shapes, setShapes] = useState<Shape[]>([]);
   const [selectedShapeId, setSelectedShapeId] = useState<string | null>(null);
+  const selectedShape = selectedShapeId ? shapes.find(shape => shape.id === selectedShapeId) ?? null : null;
+  const has3DStructure = Boolean(
+    selectedShape &&
+      selectedShape.type === 'molecule' &&
+      selectedShape.moleculeData?.sdf3DData
+  );
   const [isDraggingShape, setIsDraggingShape] = useState(false);
   const [isRotatingShape, setIsRotatingShape] = useState(false);
+  const [isRotating3DShape, setIsRotating3DShape] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const canvasHistoryRef = useRef<Shape[]>([]);
+  const rotate3DStateRef = useRef<{
+    startClientX: number;
+    startClientY: number;
+    baseX: number;
+    baseY: number;
+  } | null>(null);
 
   // Resizing state - Canva-like
   const [isResizing, setIsResizing] = useState(false);
   const [resizeHandle, setResizeHandle] = useState<'tl' | 'tr' | 'bl' | 'br' | 't' | 'b' | 'l' | 'r' | null>(null);
-  const [resizeStartX, setResizeStartX] = useState(0);
-  const [resizeStartY, setResizeStartY] = useState(0);
-  const [resizeStartWidth, setResizeStartWidth] = useState(0);
-  const [resizeStartHeight, setResizeStartHeight] = useState(0);
   const [areaEraseSelection, setAreaEraseSelection] = useState<{
     startX: number;
     startY: number;
@@ -125,11 +149,87 @@ export default function Canvas({
     isActive: boolean;
   } | null>(null);
 
+  // Lasso selection state for free-hand eraser
+  const [lassoSelection, setLassoSelection] = useState<{
+    points: { x: number; y: number }[];
+    isActive: boolean;
+  }>({
+    points: [],
+    isActive: false
+  });
+
   const FILLABLE_SHAPES = new Set(['circle', 'square', 'triangle', 'hexagon']);
 
   const handleChemistryStrokeColorChange = (color: string) => {
     setChemistryStrokeColor(color);
     setChemistryColor(color);
+  };
+
+  const updateShapeById = (id: string, updater: (shape: Shape) => Shape) => {
+    let didUpdate = false;
+    const updated = canvasHistoryRef.current.map(shape => {
+      if (shape.id === id) {
+        didUpdate = true;
+        return updater(shape);
+      }
+      return shape;
+    });
+
+    if (didUpdate) {
+      canvasHistoryRef.current = updated;
+      setShapes(updated);
+    }
+  };
+
+  const openSelectedMoleculeIn3D = () => {
+    if (!selectedShape || selectedShape.type !== 'molecule' || !selectedShape.moleculeData) {
+      return;
+    }
+
+    const { cid, smiles, displayName, name } = selectedShape.moleculeData;
+    let viewerUrl: string | null = null;
+
+    if (typeof cid === 'number' && !Number.isNaN(cid)) {
+      viewerUrl = getMolViewUrl(cid, 'balls');
+    } else if (smiles && smiles.trim().length > 0) {
+      viewerUrl = getMolViewUrlFromSmiles(smiles, 'balls');
+    }
+
+    if (!viewerUrl) {
+      console.warn('No MolView URL available for molecule', displayName ?? name ?? cid);
+      return;
+    }
+
+    window.open(viewerUrl, '_blank', 'noopener,noreferrer');
+
+    if (onOpenMolView) {
+      onOpenMolView();
+    }
+  };
+
+  const toggleSelectedMolecule3D = (enabled: boolean) => {
+    if (!selectedShapeId || selectedShape?.type !== 'molecule') {
+      return;
+    }
+
+    updateShapeById(selectedShapeId, shape => ({
+      ...shape,
+      use3D: enabled,
+      rotation3D: enabled
+        ? shape.rotation3D ?? { ...DEFAULT_MOLECULE_3D_ROTATION }
+        : shape.rotation3D
+    }));
+  };
+
+  const resetSelectedMolecule3DOrientation = () => {
+    if (!selectedShapeId || selectedShape?.type !== 'molecule') {
+      return;
+    }
+
+    updateShapeById(selectedShapeId, shape => ({
+      ...shape,
+      rotation3D: { ...DEFAULT_MOLECULE_3D_ROTATION }
+    }));
   };
 
   // Intelligent color picker based on canvas background
@@ -202,7 +302,12 @@ export default function Canvas({
     if (areaEraseSelection?.isActive) {
       drawAreaEraseOverlay(ctx, areaEraseSelection);
     }
-  }, [showGrid, canvasBackground, shapes, forceRedraw, areaEraseSelection]);
+
+    // Draw lasso selection if active
+    if (lassoSelection.isActive && lassoSelection.points.length > 0) {
+      drawLassoOverlay(ctx, lassoSelection.points);
+    }
+  }, [showGrid, canvasBackground, shapes, forceRedraw, areaEraseSelection, lassoSelection]);
 
   const drawGrid = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
     // Adjust grid color based on canvas background
@@ -252,6 +357,168 @@ export default function Canvas({
     return x >= bounds.minX && x <= bounds.maxX && y >= bounds.minY && y <= bounds.maxY;
   };
 
+  // Ray casting algorithm to check if a point is inside a polygon (lasso)
+  const isPointInPolygon = (point: { x: number; y: number }, polygon: { x: number; y: number }[]) => {
+    if (polygon.length < 3) return false;
+
+    let inside = false;
+    let p1x = polygon[0].x;
+    let p1y = polygon[0].y;
+
+    for (let i = 1; i <= polygon.length; i++) {
+      const p2x = polygon[i % polygon.length].x;
+      const p2y = polygon[i % polygon.length].y;
+
+      if (point.y > Math.min(p1y, p2y)) {
+        if (point.y <= Math.max(p1y, p2y)) {
+          if (point.x <= Math.max(p1x, p2x)) {
+            if (p1y !== p2y) {
+              const xinters = (point.y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x;
+              if (p1x === p2x || point.x <= xinters) {
+                inside = !inside;
+              }
+            }
+          }
+        }
+      }
+      p1x = p2x;
+      p1y = p2y;
+    }
+
+    return inside;
+  };
+
+  const isPointInRect = (
+    point: { x: number; y: number },
+    rect: { minX: number; minY: number; maxX: number; maxY: number }
+  ) => {
+    return (
+      point.x >= rect.minX &&
+      point.x <= rect.maxX &&
+      point.y >= rect.minY &&
+      point.y <= rect.maxY
+    );
+  };
+
+  const orientation = (
+    p: { x: number; y: number },
+    q: { x: number; y: number },
+    r: { x: number; y: number }
+  ) => {
+    const val = (q.y - p.y) * (r.x - q.x) - (q.x - p.x) * (r.y - q.y);
+    if (Math.abs(val) < 0.000001) return 0;
+    return val > 0 ? 1 : 2; // 1: clockwise, 2: counterclockwise
+  };
+
+  const onSegment = (
+    p: { x: number; y: number },
+    q: { x: number; y: number },
+    r: { x: number; y: number }
+  ) => {
+    return (
+      q.x <= Math.max(p.x, r.x) &&
+      q.x >= Math.min(p.x, r.x) &&
+      q.y <= Math.max(p.y, r.y) &&
+      q.y >= Math.min(p.y, r.y)
+    );
+  };
+
+  const segmentsIntersect = (
+    p1: { x: number; y: number },
+    q1: { x: number; y: number },
+    p2: { x: number; y: number },
+    q2: { x: number; y: number }
+  ) => {
+    const o1 = orientation(p1, q1, p2);
+    const o2 = orientation(p1, q1, q2);
+    const o3 = orientation(p2, q2, p1);
+    const o4 = orientation(p2, q2, q1);
+
+    if (o1 !== o2 && o3 !== o4) {
+      return true;
+    }
+
+    if (o1 === 0 && onSegment(p1, p2, q1)) return true;
+    if (o2 === 0 && onSegment(p1, q2, q1)) return true;
+    if (o3 === 0 && onSegment(p2, p1, q2)) return true;
+    if (o4 === 0 && onSegment(p2, q1, q2)) return true;
+
+    return false;
+  };
+
+  const doesPolygonIntersectRect = (
+    polygon: { x: number; y: number }[],
+    rect: { minX: number; minY: number; maxX: number; maxY: number }
+  ) => {
+    if (polygon.length < 3) return false;
+
+    for (const point of polygon) {
+      if (isPointInRect(point, rect)) {
+        return true;
+      }
+    }
+
+    const rectCorners = [
+      { x: rect.minX, y: rect.minY },
+      { x: rect.maxX, y: rect.minY },
+      { x: rect.maxX, y: rect.maxY },
+      { x: rect.minX, y: rect.maxY }
+    ];
+
+    for (const corner of rectCorners) {
+      if (isPointInPolygon(corner, polygon)) {
+        return true;
+      }
+    }
+
+    const rectEdges: [
+      { x: number; y: number },
+      { x: number; y: number }
+    ][] = [
+      [rectCorners[0], rectCorners[1]],
+      [rectCorners[1], rectCorners[2]],
+      [rectCorners[2], rectCorners[3]],
+      [rectCorners[3], rectCorners[0]]
+    ];
+
+    for (let i = 0; i < polygon.length; i++) {
+      const p1 = polygon[i];
+      const p2 = polygon[(i + 1) % polygon.length];
+
+      for (const [r1, r2] of rectEdges) {
+        if (segmentsIntersect(p1, p2, r1, r2)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  };
+
+  const getSvgAspectRatio = (svgContent?: string | null) => {
+    if (!svgContent) return 1;
+
+    const viewBoxMatch = svgContent.match(/viewBox="([^"]+)"/i);
+    if (viewBoxMatch) {
+      const parts = viewBoxMatch[1].trim().split(/\s+/).map(Number);
+      if (parts.length === 4 && parts[2] > 0 && parts[3] > 0) {
+        return parts[2] / parts[3];
+      }
+    }
+
+    const widthMatch = svgContent.match(/width="([\d.]+)(px)?"/i);
+    const heightMatch = svgContent.match(/height="([\d.]+)(px)?"/i);
+    if (widthMatch && heightMatch) {
+      const width = parseFloat(widthMatch[1]);
+      const height = parseFloat(heightMatch[1]);
+      if (!Number.isNaN(width) && !Number.isNaN(height) && height > 0) {
+        return width / height;
+      }
+    }
+
+    return 1;
+  };
+
   const drawAreaEraseOverlay = (
     ctx: CanvasRenderingContext2D,
     selection: { startX: number; startY: number; currentX: number; currentY: number }
@@ -271,6 +538,47 @@ export default function Canvas({
     ctx.restore();
   };
 
+  // Draw lasso selection path
+  const drawLassoOverlay = (ctx: CanvasRenderingContext2D, points: { x: number; y: number }[]) => {
+    if (points.length < 2) return;
+
+    ctx.save();
+    
+    // Draw lasso path line
+    ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([8, 4]);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) {
+      ctx.lineTo(points[i].x, points[i].y);
+    }
+    ctx.stroke();
+
+    // Draw semi-transparent fill inside lasso
+    if (points.length >= 3) {
+      ctx.fillStyle = 'rgba(251, 191, 36, 0.1)';
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i++) {
+        ctx.lineTo(points[i].x, points[i].y);
+      }
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Draw start point indicator
+    ctx.fillStyle = '#fbbf24';
+    ctx.beginPath();
+    ctx.arc(points[0].x, points[0].y, 4, 0, 2 * Math.PI);
+    ctx.fill();
+
+    ctx.restore();
+  };
+
   // Helper function to detect which resize handle is being clicked
   const detectResizeHandle = (
     x: number,
@@ -278,21 +586,18 @@ export default function Canvas({
     shape: Shape
   ): 'tl' | 'tr' | 'bl' | 'br' | 't' | 'b' | 'l' | 'r' | null => {
     const handleSize = 12;
-    const startX = shape.startX;
-    const startY = shape.startY;
-    const endX = shape.endX;
-    const endY = shape.endY;
+    const { minX, minY, maxX, maxY } = getShapeBounds(shape);
 
-    // Define handle positions
+    // Define handle positions using normalized bounds
     const handles = {
-      tl: { x: startX, y: startY },
-      tr: { x: endX, y: startY },
-      bl: { x: startX, y: endY },
-      br: { x: endX, y: endY },
-      t: { x: (startX + endX) / 2, y: startY },
-      b: { x: (startX + endX) / 2, y: endY },
-      l: { x: startX, y: (startY + endY) / 2 },
-      r: { x: endX, y: (startY + endY) / 2 }
+      tl: { x: minX, y: minY },
+      tr: { x: maxX, y: minY },
+      bl: { x: minX, y: maxY },
+      br: { x: maxX, y: maxY },
+      t: { x: (minX + maxX) / 2, y: minY },
+      b: { x: (minX + maxX) / 2, y: maxY },
+      l: { x: minX, y: (minY + maxY) / 2 },
+      r: { x: maxX, y: (minY + maxY) / 2 }
     };
 
     // Check which handle is closest to the click
@@ -317,6 +622,17 @@ export default function Canvas({
 
     const activeTool = showChemistryToolbar ? chemistryTool : currentTool;
 
+    // Lasso selection for eraser (free-hand lasso mode with Ctrl key)
+    if (activeTool === 'eraser' && e.ctrlKey) {
+      console.log('Lasso selection started at:', { x, y });
+      setLassoSelection({
+        points: [{ x, y }],
+        isActive: true
+      });
+      setIsDrawing(false);
+      return;
+    }
+
     if (activeTool === 'eraser' && e.shiftKey) {
       setAreaEraseSelection({
         startX: x,
@@ -329,10 +645,8 @@ export default function Canvas({
       return;
     }
 
-    // Handle Rotate tool - rotate existing shapes (right-click)
-    if (activeTool === 'rotate' && (e.button === 2 || e.ctrlKey)) {
-      e.preventDefault();
-      // Check if clicking on existing shape
+    // Handle Rotate tool - supports 3D orbit (left drag) and 2D rotation (right drag)
+    if (activeTool === 'rotate') {
       for (let i = canvasHistoryRef.current.length - 1; i >= 0; i--) {
         const shape = canvasHistoryRef.current[i];
         const dx = shape.endX - shape.startX;
@@ -340,47 +654,76 @@ export default function Canvas({
         const distance = Math.sqrt(dx * dx + dy * dy);
         const centerX = shape.startX + dx / 2;
         const centerY = shape.startY + dy / 2;
-
-        // Check if click is within shape bounds
         const tolerance = Math.max(distance / 2 + 10, 20);
-        const distToShape = Math.sqrt(
-          Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2)
-        );
+        const distToShape = Math.hypot(x - centerX, y - centerY);
 
         if (distToShape < tolerance) {
           setSelectedShapeId(shape.id);
-          setIsRotatingShape(true);
-          setDragOffset({ x: x - centerX, y: y - centerY });
-          return;
+
+          const has3DData =
+            shape.type === 'molecule' &&
+            shape.moleculeData?.sdf3DData &&
+            shape.use3D;
+
+          if (has3DData && e.button === 0 && !e.ctrlKey && !e.metaKey) {
+            e.preventDefault();
+            setIsRotating3DShape(true);
+            rotate3DStateRef.current = {
+              startClientX: e.clientX,
+              startClientY: e.clientY,
+              baseX: shape.rotation3D?.x ?? -25,
+              baseY: shape.rotation3D?.y ?? 35
+            };
+            return;
+          }
+
+          if (e.button === 2 || e.ctrlKey) {
+            e.preventDefault();
+            setIsRotatingShape(true);
+            setDragOffset({ x: x - centerX, y: y - centerY });
+            return;
+          }
+
+          break;
         }
       }
+
+      // If rotate tool was used without qualifying click, do nothing further
       return;
     }
 
-    // Handle Move/Select tool - move existing shapes
+    // Handle Move/Select tool - move and resize existing shapes
     if (activeTool === 'move') {
-      // Check if clicking on existing shape
       for (let i = canvasHistoryRef.current.length - 1; i >= 0; i--) {
         const shape = canvasHistoryRef.current[i];
-        const dx = shape.endX - shape.startX;
-        const dy = shape.endY - shape.startY;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        const centerX = shape.startX + dx / 2;
-        const centerY = shape.startY + dy / 2;
+        const bounds = getShapeBounds(shape);
+        const centerX = bounds.minX + (bounds.maxX - bounds.minX) / 2;
+        const centerY = bounds.minY + (bounds.maxY - bounds.minY) / 2;
+        const isWithinBounds =
+          x >= bounds.minX &&
+          x <= bounds.maxX &&
+          y >= bounds.minY &&
+          y <= bounds.maxY;
 
-        // Check if click is within shape bounds
-        const tolerance = Math.max(distance / 2 + 10, 20);
-        const distToShape = Math.sqrt(
-          Math.pow(x - centerX, 2) + Math.pow(y - centerY, 2)
-        );
+        // If shape already selected, check for resize handle interaction first
+        if (selectedShapeId === shape.id) {
+          const handle = detectResizeHandle(x, y, shape);
+          if (handle) {
+            setResizeHandle(handle);
+            setIsResizing(true);
+            return;
+          }
+        }
 
-        if (distToShape < tolerance) {
+        if (isWithinBounds) {
           setSelectedShapeId(shape.id);
           setIsDraggingShape(true);
           setDragOffset({ x: x - centerX, y: y - centerY });
           return;
         }
       }
+
+      setSelectedShapeId(null);
       return;
     }
 
@@ -426,6 +769,36 @@ export default function Canvas({
     const x = (e.clientX - rect.left) / zoom;
     const y = (e.clientY - rect.top) / zoom;
 
+    if (isRotating3DShape && selectedShapeId && rotate3DStateRef.current) {
+      const start = rotate3DStateRef.current;
+      const deltaX = e.clientX - start.startClientX;
+      const deltaY = e.clientY - start.startClientY;
+      const sensitivity = 0.45;
+
+      const nextRotationX = start.baseX + deltaY * sensitivity;
+      const nextRotationY = start.baseY + deltaX * sensitivity;
+
+      updateShapeById(selectedShapeId, shape => ({
+        ...shape,
+        rotation3D: {
+          x: Math.max(-180, Math.min(180, nextRotationX)),
+          y: ((nextRotationY % 360) + 360) % 360
+        }
+      }));
+
+      return;
+    }
+
+    // Handle lasso selection for eraser
+    if (lassoSelection.isActive) {
+      console.log('Lasso point added:', { x, y }, 'Total points:', lassoSelection.points.length + 1);
+      setLassoSelection(prev => ({
+        ...prev,
+        points: [...prev.points, { x, y }]
+      }));
+      return;
+    }
+
     if (areaEraseSelection?.isActive) {
       setAreaEraseSelection(prev =>
         prev ? { ...prev, currentX: x, currentY: y } : prev
@@ -435,9 +808,8 @@ export default function Canvas({
 
     const activeTool = showChemistryToolbar ? chemistryTool : currentTool;
     const activeStrokeColor = showChemistryToolbar ? chemistryStrokeColor : strokeColor;
-    const activeFillColor = showChemistryToolbar ? chemistryFillColor : activeStrokeColor;
-    const activeFillEnabled = showChemistryToolbar ? chemistryFillEnabled : true;
-    const activeColor = activeStrokeColor;
+  const activeFillColor = showChemistryToolbar ? chemistryFillColor : activeStrokeColor;
+  const activeFillEnabled = showChemistryToolbar ? chemistryFillEnabled : true;
     const activeSize = showChemistryToolbar ? chemistrySize : strokeWidth;
     const fillConfig = {
       fillColor: activeFillColor,
@@ -501,45 +873,116 @@ export default function Canvas({
     }
 
     // Handle resizing existing shape
-    if (isResizing && selectedShapeId) {
-      const shape = canvasHistoryRef.current.find(s => s.id === selectedShapeId);
-      if (shape) {
-        const dx = x - resizeStartX;
-        const dy = y - resizeStartY;
-        const newWidth = resizeStartWidth + dx;
-        const newHeight = resizeStartHeight + dy;
+    if (isResizing && selectedShapeId && resizeHandle) {
+      const shapeIndex = canvasHistoryRef.current.findIndex(s => s.id === selectedShapeId);
+      if (shapeIndex >= 0) {
+        const shape = canvasHistoryRef.current[shapeIndex];
+        const bounds = getShapeBounds(shape);
+        let newMinX = bounds.minX;
+        let newMaxX = bounds.maxX;
+        let newMinY = bounds.minY;
+        let newMaxY = bounds.maxY;
+        const MIN_SIZE = 16;
 
-        // Ensure new dimensions are positive
-        if (newWidth > 0 && newHeight > 0) {
-          setShapes(canvasHistoryRef.current.map(s => {
-            if (s.id === selectedShapeId) {
-              return {
-                ...s,
-                startX: shape.startX,
-                startY: shape.startY,
-                endX: shape.startX + newWidth,
-                endY: shape.startY + newHeight,
-                size: newWidth // Assuming size is width for simplicity
-              };
-            }
-            return s;
-          }));
-          canvasHistoryRef.current = canvasHistoryRef.current.map(s => {
-            if (s.id === selectedShapeId) {
-              return {
-                ...s,
-                startX: shape.startX,
-                startY: shape.startY,
-                endX: shape.startX + newWidth,
-                endY: shape.startY + newHeight,
-                size: newWidth // Assuming size is width for simplicity
-              };
-            }
-            return s;
-          });
+        if (resizeHandle.includes('l')) {
+          newMinX = Math.min(x, newMaxX - MIN_SIZE);
         }
-        return;
+        if (resizeHandle.includes('r')) {
+          newMaxX = Math.max(x, newMinX + MIN_SIZE);
+        }
+        if (resizeHandle.includes('t')) {
+          newMinY = Math.min(y, newMaxY - MIN_SIZE);
+        }
+        if (resizeHandle.includes('b')) {
+          newMaxY = Math.max(y, newMinY + MIN_SIZE);
+        }
+
+        if (resizeHandle === 'l') {
+          newMaxX = bounds.maxX;
+        } else if (resizeHandle === 'r') {
+          newMinX = bounds.minX;
+        }
+
+        if (resizeHandle === 't') {
+          newMaxY = bounds.maxY;
+        } else if (resizeHandle === 'b') {
+          newMinY = bounds.minY;
+        }
+
+        // Recompute width/height ensuring minimum size
+        let finalMinX = Math.min(newMinX, newMaxX);
+        let finalMaxX = Math.max(newMinX, newMaxX);
+        let finalMinY = Math.min(newMinY, newMaxY);
+        let finalMaxY = Math.max(newMinY, newMaxY);
+        let width = Math.max(MIN_SIZE, finalMaxX - finalMinX);
+        let height = Math.max(MIN_SIZE, finalMaxY - finalMinY);
+
+        if (shape.maintainAspect && shape.aspectRatio) {
+          const aspect = shape.aspectRatio;
+          const horizontalHandle = resizeHandle.includes('l') ? 'l' : resizeHandle.includes('r') ? 'r' : null;
+          const verticalHandle = resizeHandle.includes('t') ? 't' : resizeHandle.includes('b') ? 'b' : null;
+
+          if (resizeHandle === 't' || resizeHandle === 'b') {
+            width = Math.max(MIN_SIZE, height * aspect);
+          } else if (resizeHandle === 'l' || resizeHandle === 'r') {
+            height = Math.max(MIN_SIZE, width / aspect);
+          } else {
+            const heightFromWidth = width / aspect;
+            const widthFromHeight = height * aspect;
+            if (heightFromWidth > height) {
+              height = Math.max(MIN_SIZE, heightFromWidth);
+            } else {
+              width = Math.max(MIN_SIZE, widthFromHeight);
+            }
+          }
+
+          if (!horizontalHandle) {
+            const centerX = (finalMinX + finalMaxX) / 2;
+            finalMinX = centerX - width / 2;
+            finalMaxX = centerX + width / 2;
+          } else if (horizontalHandle === 'l') {
+            finalMaxX = Math.max(finalMaxX, finalMinX);
+            finalMinX = finalMaxX - width;
+          } else if (horizontalHandle === 'r') {
+            finalMinX = Math.min(finalMinX, finalMaxX);
+            finalMaxX = finalMinX + width;
+          }
+
+          if (!verticalHandle) {
+            const centerY = (finalMinY + finalMaxY) / 2;
+            finalMinY = centerY - height / 2;
+            finalMaxY = centerY + height / 2;
+          } else if (verticalHandle === 't') {
+            finalMaxY = Math.max(finalMaxY, finalMinY);
+            finalMinY = finalMaxY - height;
+          } else if (verticalHandle === 'b') {
+            finalMinY = Math.min(finalMinY, finalMaxY);
+            finalMaxY = finalMinY + height;
+          }
+        }
+
+        finalMinX = Math.min(finalMinX, finalMaxX);
+        finalMaxX = Math.max(finalMinX, finalMaxX);
+        finalMinY = Math.min(finalMinY, finalMaxY);
+        finalMaxY = Math.max(finalMinY, finalMaxY);
+        width = Math.max(MIN_SIZE, finalMaxX - finalMinX);
+        height = Math.max(MIN_SIZE, finalMaxY - finalMinY);
+
+        const updatedShape: Shape = {
+          ...shape,
+          startX: finalMinX,
+          startY: finalMinY,
+          endX: finalMaxX,
+          endY: finalMaxY,
+          size: Math.max(width, height)
+        };
+
+        const updatedShapes = [...canvasHistoryRef.current];
+        updatedShapes[shapeIndex] = updatedShape;
+        canvasHistoryRef.current = updatedShapes;
+        setShapes(updatedShapes);
       }
+      return;
     }
 
     // Handle shape preview while dragging (arrow, circle, square, triangle, hexagon, plus, minus)
@@ -822,91 +1265,359 @@ export default function Canvas({
   };
 
   const drawMolecule = (ctx: CanvasRenderingContext2D, shape: Shape) => {
-    if (!shape.moleculeData) {
+    const data = shape.moleculeData;
+    if (!data) {
       console.warn('Molecule data not available for shape:', shape);
       return;
     }
 
-    const cid = shape.moleculeData.cid;
-    const cache = moleculeImageCacheRef.current;
-    const sdfCache = sdfCacheRef.current;
-    
-    // Calculate position and size
-    const centerX = shape.startX + (shape.endX - shape.startX) / 2;
-    const centerY = shape.startY + (shape.endY - shape.startY) / 2;
     const width = Math.abs(shape.endX - shape.startX);
     const height = Math.abs(shape.endY - shape.startY);
+    const centerX = shape.startX + width / 2;
+    const centerY = shape.startY + height / 2;
+    const rotation = (shape.rotation ?? 0) * (Math.PI / 180);
+    const is3DMode = Boolean(shape.use3D && data.sdf3DData);
 
-    // Try to render SDF structure first if available
-    if (shape.moleculeData.svgData) {
-      // SDF takes priority for 2D structure rendering
-      try {
-        if (!sdfCache.has(cid) && shape.moleculeData.svgData) {
-          const parsed = parseSDF(shape.moleculeData.svgData);
-          if (parsed) {
-            sdfCache.set(cid, parsed);
+    const render2DStructure = (parsed: ParsedSDF) => {
+      if (!parsed.atoms.length) return;
+
+      const atomBounds = parsed.atoms.reduce(
+        (acc, atom) => ({
+          minX: Math.min(acc.minX, atom.x),
+          maxX: Math.max(acc.maxX, atom.x),
+          minY: Math.min(acc.minY, atom.y),
+          maxY: Math.max(acc.maxY, atom.y)
+        }),
+        {
+          minX: Number.POSITIVE_INFINITY,
+          maxX: Number.NEGATIVE_INFINITY,
+          minY: Number.POSITIVE_INFINITY,
+          maxY: Number.NEGATIVE_INFINITY
+        }
+      );
+
+      const structureWidth = Math.max(1, atomBounds.maxX - atomBounds.minX);
+      const structureHeight = Math.max(1, atomBounds.maxY - atomBounds.minY);
+      const padding = Math.min(width, height) * 0.1;
+      const availableWidth = Math.max(10, width - padding * 2);
+      const availableHeight = Math.max(10, height - padding * 2);
+      const scale = Math.min(availableWidth / structureWidth, availableHeight / structureHeight);
+
+      const centerAtomX = (atomBounds.minX + atomBounds.maxX) / 2;
+      const centerAtomY = (atomBounds.minY + atomBounds.maxY) / 2;
+      const bondStrokeWidth = Math.max(1.2, Math.min(width, height) * 0.02);
+      const multipleBondOffset = bondStrokeWidth;
+      const atomRadius = Math.max(3, Math.min(width, height) * 0.04);
+
+      const project = (atom: { x: number; y: number }) => ({
+        x: (atom.x - centerAtomX) * scale,
+        y: (centerAtomY - atom.y) * scale
+      });
+
+      ctx.save();
+      ctx.translate(centerX, centerY);
+      ctx.rotate(rotation);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = bondStrokeWidth;
+
+      parsed.bonds.forEach(bond => {
+        const atom1 = parsed.atoms[bond.from];
+        const atom2 = parsed.atoms[bond.to];
+        if (!atom1 || !atom2) return;
+
+        const p1 = project(atom1);
+        const p2 = project(atom2);
+
+        const drawBondLine = (offsetX: number, offsetY: number) => {
+          ctx.beginPath();
+          ctx.moveTo(p1.x + offsetX, p1.y + offsetY);
+          ctx.lineTo(p2.x + offsetX, p2.y + offsetY);
+          ctx.stroke();
+        };
+
+        drawBondLine(0, 0);
+
+        if (bond.type === 2 || bond.type === 3) {
+          const dx = p2.x - p1.x;
+          const dy = p2.y - p1.y;
+          const len = Math.hypot(dx, dy) || 1;
+          const offsetX = (-dy / len) * multipleBondOffset;
+          const offsetY = (dx / len) * multipleBondOffset;
+
+          drawBondLine(offsetX, offsetY);
+
+          if (bond.type === 3) {
+            drawBondLine(-offsetX, -offsetY);
           }
         }
+      });
 
-        const parsedSDF = sdfCache.get(cid);
-        if (parsedSDF) {
-          ctx.save();
-          ctx.translate(centerX, centerY);
-          ctx.rotate((shape.rotation * Math.PI) / 180);
-          drawSDF2DStructure(ctx, parsedSDF, 0, 0, 25);
-          ctx.restore();
+      parsed.atoms.forEach(atom => {
+        const { x, y } = project(atom);
+        const color = ATOM_COLORS[atom.element] || '#cbd5f5';
+
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(x, y, atomRadius, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = '#0f172a';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        if (atom.element !== 'H') {
+          ctx.fillStyle = '#0f172a';
+          ctx.font = `${Math.max(10, atomRadius * 1.8)}px sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(atom.element, x, y);
+        }
+      });
+
+      ctx.restore();
+    };
+
+    const render3DStructure = (parsed: ParsedSDF) => {
+      if (!parsed.atoms.length) return;
+
+      const bounds = parsed.atoms.reduce(
+        (acc, atom) => ({
+          minX: Math.min(acc.minX, atom.x),
+          maxX: Math.max(acc.maxX, atom.x),
+          minY: Math.min(acc.minY, atom.y),
+          maxY: Math.max(acc.maxY, atom.y),
+          minZ: Math.min(acc.minZ, atom.z),
+          maxZ: Math.max(acc.maxZ, atom.z)
+        }),
+        {
+          minX: Number.POSITIVE_INFINITY,
+          maxX: Number.NEGATIVE_INFINITY,
+          minY: Number.POSITIVE_INFINITY,
+          maxY: Number.NEGATIVE_INFINITY,
+          minZ: Number.POSITIVE_INFINITY,
+          maxZ: Number.NEGATIVE_INFINITY
+        }
+      );
+
+      const rotation3D = shape.rotation3D ?? { ...DEFAULT_MOLECULE_3D_ROTATION };
+      const yaw = (rotation3D.y * Math.PI) / 180;
+      const pitch = (rotation3D.x * Math.PI) / 180;
+      const cosY = Math.cos(yaw);
+      const sinY = Math.sin(yaw);
+      const cosX = Math.cos(pitch);
+      const sinX = Math.sin(pitch);
+
+      const centerX3D = (bounds.minX + bounds.maxX) / 2;
+      const centerY3D = (bounds.minY + bounds.maxY) / 2;
+      const centerZ3D = (bounds.minZ + bounds.maxZ) / 2;
+
+      const rotatedAtoms = parsed.atoms.map((atom, index) => {
+        const x = atom.x - centerX3D;
+        const y = atom.y - centerY3D;
+        const z = atom.z - centerZ3D;
+
+        const x1 = x * cosY + z * sinY;
+        const z1 = -x * sinY + z * cosY;
+
+        const y1 = y * cosX - z1 * sinX;
+        const z2 = y * sinX + z1 * cosX;
+
+        return {
+          x: x1,
+          y: y1,
+          z: z2,
+          element: atom.element,
+          index
+        };
+      });
+
+      const rotatedBounds = rotatedAtoms.reduce(
+        (acc, atom) => ({
+          minX: Math.min(acc.minX, atom.x),
+          maxX: Math.max(acc.maxX, atom.x),
+          minY: Math.min(acc.minY, atom.y),
+          maxY: Math.max(acc.maxY, atom.y),
+          minZ: Math.min(acc.minZ, atom.z),
+          maxZ: Math.max(acc.maxZ, atom.z)
+        }),
+        {
+          minX: Number.POSITIVE_INFINITY,
+          maxX: Number.NEGATIVE_INFINITY,
+          minY: Number.POSITIVE_INFINITY,
+          maxY: Number.NEGATIVE_INFINITY,
+          minZ: Number.POSITIVE_INFINITY,
+          maxZ: Number.NEGATIVE_INFINITY
+        }
+      );
+
+      const structureWidth = Math.max(1, rotatedBounds.maxX - rotatedBounds.minX);
+      const structureHeight = Math.max(1, rotatedBounds.maxY - rotatedBounds.minY);
+      const padding = Math.min(width, height) * 0.12;
+      const availableWidth = Math.max(10, width - padding * 2);
+      const availableHeight = Math.max(10, height - padding * 2);
+      const scale = Math.min(availableWidth / structureWidth, availableHeight / structureHeight);
+
+      const centerXRotated = (rotatedBounds.minX + rotatedBounds.maxX) / 2;
+      const centerYRotated = (rotatedBounds.minY + rotatedBounds.maxY) / 2;
+
+      const projectedAtoms = rotatedAtoms.map(atom => ({
+        x: (atom.x - centerXRotated) * scale,
+        y: (centerYRotated - atom.y) * scale,
+        z: atom.z,
+        element: atom.element,
+        index: atom.index
+      }));
+
+      const minDepth = rotatedBounds.minZ;
+      const maxDepth = rotatedBounds.maxZ;
+      const depthRange = Math.max(0.0001, maxDepth - minDepth);
+
+      ctx.save();
+      ctx.translate(centerX, centerY);
+      ctx.rotate(rotation);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      const bondsSorted = parsed.bonds
+        .map(bond => {
+          const atom1 = projectedAtoms[bond.from];
+          const atom2 = projectedAtoms[bond.to];
+          const depth = ((atom1?.z ?? 0) + (atom2?.z ?? 0)) / 2;
+          return { bond, depth };
+        })
+        .sort((a, b) => a.depth - b.depth);
+
+      bondsSorted.forEach(({ bond }) => {
+        const atom1 = projectedAtoms[bond.from];
+        const atom2 = projectedAtoms[bond.to];
+        if (!atom1 || !atom2) return;
+
+        const avgDepth = (atom1.z + atom2.z) / 2;
+        const depthFactor = 1 - (avgDepth - minDepth) / depthRange;
+        const bondStrokeWidth = Math.max(1.2, Math.min(width, height) * 0.02) * (0.65 + depthFactor * 0.7);
+        const opacity = 0.35 + depthFactor * 0.55;
+
+        const dx = atom2.x - atom1.x;
+        const dy = atom2.y - atom1.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const offsetBase = bondStrokeWidth * 0.8;
+        const offsetX = (-dy / len) * offsetBase;
+        const offsetY = (dx / len) * offsetBase;
+
+        const drawBondLine = (ox: number, oy: number) => {
+          ctx.beginPath();
+          ctx.strokeStyle = `rgba(148, 163, 184, ${opacity.toFixed(3)})`;
+          ctx.lineWidth = bondStrokeWidth;
+          ctx.moveTo(atom1.x + ox, atom1.y + oy);
+          ctx.lineTo(atom2.x + ox, atom2.y + oy);
+          ctx.stroke();
+        };
+
+        drawBondLine(0, 0);
+
+        if (bond.type === 2 || bond.type === 3) {
+          drawBondLine(offsetX, offsetY);
+          if (bond.type === 3) {
+            drawBondLine(-offsetX, -offsetY);
+          }
+        }
+      });
+
+      const atomsSorted = projectedAtoms.slice().sort((a, b) => a.z - b.z);
+      atomsSorted.forEach(atom => {
+        const depthFactor = 1 - (atom.z - minDepth) / depthRange;
+        const radius = Math.max(3, Math.min(width, height) * 0.035) * (0.65 + depthFactor * 0.6);
+        const color = ATOM_COLORS[atom.element] || '#cbd5f5';
+        const shading = Math.min(0.3 + depthFactor * 0.7, 1);
+
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(atom.x, atom.y, radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = `rgba(15, 23, 42, ${0.55 + shading * 0.35})`;
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+
+        if (atom.element !== 'H') {
+          ctx.fillStyle = '#0f172a';
+          ctx.font = `${Math.max(10, radius * 1.6)}px sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(atom.element, atom.x, atom.y);
+        }
+      });
+
+      ctx.restore();
+    };
+
+    const sdfSource = (is3DMode ? data.sdf3DData : data.sdfData)?.trim();
+    if (sdfSource) {
+      const cacheKey = `${data.cid ?? data.name}-${is3DMode ? '3d' : '2d'}`;
+      let parsed = sdfCacheRef.current.get(cacheKey);
+
+      if (!parsed) {
+        try {
+          parsed = parseSDF(sdfSource) ?? undefined;
+          if (parsed) {
+            sdfCacheRef.current.set(cacheKey, parsed);
+          }
+        } catch (error) {
+          console.warn('Error parsing SDF for molecule:', data.name, error);
+        }
+      }
+
+      if (parsed) {
+        if (is3DMode && parsed.atoms.some(atom => Math.abs(atom.z) > 0.0001)) {
+          render3DStructure(parsed);
           return;
         }
-      } catch (error) {
-        console.warn('Error rendering SDF, falling back to SVG/PNG:', error);
+
+        render2DStructure(parsed);
+        return;
       }
     }
 
-    // Check if we have a cached image
+    const cid = data.cid;
+    const cache = moleculeImageCacheRef.current;
+
     if (cache.has(cid)) {
       const img = cache.get(cid);
       if (img && img.complete) {
-        // Apply rotation and draw
         ctx.save();
         ctx.translate(centerX, centerY);
-        ctx.rotate((shape.rotation * Math.PI) / 180);
+        ctx.rotate(rotation);
         ctx.drawImage(img, -width / 2, -height / 2, width, height);
         ctx.restore();
         return;
       }
     }
 
-    // If no cached image, try to load from SVG data or use PNG fallback
-    if (shape.moleculeData.svgData) {
-      // Convert SVG to image and cache it
-      const svg = shape.moleculeData.svgData;
+    if (data.svgData) {
+      const svg = data.svgData;
       const blob = new Blob([svg], { type: 'image/svg+xml' });
       const url = URL.createObjectURL(blob);
-      
+
       const img = new Image();
       img.crossOrigin = 'anonymous';
       img.onload = () => {
-        // Cache the loaded image
         cache.set(cid, img);
-        
-        // Apply rotation and draw
         ctx.save();
         ctx.translate(centerX, centerY);
-        ctx.rotate((shape.rotation * Math.PI) / 180);
+        ctx.rotate(rotation);
         ctx.drawImage(img, -width / 2, -height / 2, width, height);
         ctx.restore();
-        
-        // Trigger redraw to ensure canvas updates
         setForceRedraw(prev => prev + 1);
       };
       img.onerror = () => {
-        console.warn('Failed to load SVG for molecule:', shape.moleculeData.name);
-        // Fallback to PNG
+        console.warn('Failed to load SVG for molecule:', data.displayName ?? data.name ?? 'Unknown');
         loadMoleculePNG(ctx, shape, centerX, centerY, width, height);
       };
       img.src = url;
     } else {
-      // Use PNG as fallback (like 3D molecules)
       loadMoleculePNG(ctx, shape, centerX, centerY, width, height);
     }
   };
@@ -954,7 +1665,7 @@ export default function Canvas({
       setForceRedraw(prev => prev + 1);
     };
     img.onerror = () => {
-      console.warn('Failed to load molecule PNG:', shape.moleculeData?.name);
+  console.warn('Failed to load molecule PNG:', shape.moleculeData?.displayName ?? shape.moleculeData?.name ?? 'Unknown');
       // Draw placeholder
       ctx.save();
       ctx.fillStyle = '#3b82f6';
@@ -965,13 +1676,51 @@ export default function Canvas({
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.globalAlpha = 1;
-      ctx.fillText(shape.moleculeData?.formula || 'Molecule', centerX, centerY);
+  ctx.fillText(shape.moleculeData?.molecularFormula || 'Molecule', centerX, centerY);
       ctx.restore();
     };
     img.src = pngUrl;
   };
 
   const stopDrawing = () => {
+    // Handle lasso selection for eraser
+    if (lassoSelection.isActive && lassoSelection.points.length > 3) {
+      console.log('Lasso selection complete with', lassoSelection.points.length, 'points');
+      const updatedShapes = canvasHistoryRef.current.filter(shape => {
+        const dx = shape.endX - shape.startX;
+        const dy = shape.endY - shape.startY;
+        const centerX = shape.startX + dx / 2;
+        const centerY = shape.startY + dy / 2;
+        const bounds = getShapeBounds(shape);
+
+        const centerInside = isPointInPolygon({ x: centerX, y: centerY }, lassoSelection.points);
+        const boundsIntersect = doesPolygonIntersectRect(lassoSelection.points, bounds);
+        const shouldErase = centerInside || boundsIntersect;
+
+        console.log(
+          'Shape at',
+          centerX,
+          centerY,
+          'removed by lasso:',
+          shouldErase,
+          { centerInside, boundsIntersect }
+        );
+
+        return !shouldErase;
+      });
+
+      console.log('Shapes before:', canvasHistoryRef.current.length, 'Shapes after:', updatedShapes.length);
+      if (updatedShapes.length !== canvasHistoryRef.current.length) {
+        setShapes(updatedShapes);
+        canvasHistoryRef.current = updatedShapes;
+        setSelectedShapeId(null);
+      }
+
+      setLassoSelection({ points: [], isActive: false });
+      setIsDrawing(false);
+      return;
+    }
+
     if (areaEraseSelection?.isActive) {
       const { startX, startY, currentX, currentY } = areaEraseSelection;
       const minX = Math.min(startX, currentX);
@@ -1009,16 +1758,20 @@ export default function Canvas({
     }
 
     // Stop rotating shape
+    if (isRotating3DShape) {
+      setIsRotating3DShape(false);
+      rotate3DStateRef.current = null;
+      return;
+    }
+
     if (isRotatingShape) {
       setIsRotatingShape(false);
-      setSelectedShapeId(null);
       return;
     }
 
     // Stop dragging shape
     if (isDraggingShape) {
       setIsDraggingShape(false);
-      setSelectedShapeId(null);
       return;
     }
 
@@ -1150,7 +1903,7 @@ export default function Canvas({
         ];
         
         // Draw each handle
-        handlePositions.forEach((pos, index) => {
+        handlePositions.forEach((pos) => {
           ctx.fillStyle = '#0ea5e9';  // Cyan handles
           ctx.fillRect(
             pos.x - handleSize / 2,
@@ -1631,6 +2384,84 @@ export default function Canvas({
         onTouchEnd={handleTouchEnd}
       />
 
+      {selectedShape?.type === 'molecule' && selectedShape.moleculeData && (
+        <div className="absolute top-8 right-8 z-20 flex flex-col gap-3 max-w-xs">
+          <div className="rounded-xl border border-slate-700/70 bg-slate-900/90 backdrop-blur-sm p-4 shadow-xl">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Selected Molecule</p>
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-cyan-500/20 border border-cyan-400/40">
+                <Atom className="text-cyan-300" size={18} />
+              </div>
+              <div className="flex-1 space-y-1">
+                <p className="text-sm font-medium text-slate-200 leading-tight">
+                  {selectedShape.moleculeData.displayName || selectedShape.moleculeData.name || `CID ${selectedShape.moleculeData.cid}`}
+                </p>
+                {selectedShape.moleculeData.molecularFormula && (
+                  <p className="text-xs text-slate-400">{selectedShape.moleculeData.molecularFormula}</p>
+                )}
+              </div>
+            </div>
+
+            {has3DStructure ? (
+              <div className="mt-3 space-y-3">
+                <button
+                  type="button"
+                  onClick={() => toggleSelectedMolecule3D(!selectedShape.use3D)}
+                  className={`w-full rounded-lg px-3 py-2 text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${
+                    selectedShape.use3D
+                      ? 'bg-cyan-500/90 text-slate-900 hover:bg-cyan-400'
+                      : 'bg-slate-800/80 text-slate-200 border border-slate-700/60 hover:bg-slate-800'
+                  }`}
+                  title={selectedShape.use3D ? 'Disable 3D orbit mode' : 'Enable 3D orbit mode'}
+                >
+                  <RotateCcw size={16} />
+                  {selectedShape.use3D ? 'Disable 3D Orbit' : 'Enable 3D Orbit'}
+                </button>
+
+                {selectedShape.use3D && (
+                  <>
+                    {(() => {
+                      const rotation3D = selectedShape.rotation3D ?? { ...DEFAULT_MOLECULE_3D_ROTATION };
+                      return (
+                        <div className="flex items-center justify-between text-[11px] text-slate-400">
+                          <span>Pitch: {Math.round(rotation3D.x)}°</span>
+                          <span>Yaw: {Math.round(rotation3D.y)}°</span>
+                        </div>
+                      );
+                    })()}
+
+                    <div className="rounded-lg border border-slate-700/60 bg-slate-800/70 p-3 text-[11px] leading-relaxed text-slate-300">
+                      Use the Rotate tool (🔄) and left-drag on the molecule to orbit it in 3D. Right-drag still spins the 2D orientation.
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={resetSelectedMolecule3DOrientation}
+                      className="w-full rounded-lg border border-slate-700/60 bg-slate-800/80 px-3 py-2 text-xs font-semibold text-slate-200 transition-colors hover:bg-slate-800"
+                    >
+                      Reset 3D Orientation
+                    </button>
+                  </>
+                )}
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-slate-400">
+                3D orbit controls will appear once a 3D structure is available for this molecule.
+              </p>
+            )}
+
+            <button
+              type="button"
+              onClick={openSelectedMoleculeIn3D}
+              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-700/60 bg-slate-800/80 px-3 py-2 text-sm font-semibold text-slate-200 transition-colors hover:bg-slate-800"
+              title="Open interactive MolView tab"
+            >
+              View in MolView
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Correction Markers - Simplified */}
       {showCorrections && corrections.map((correction) => (
         <div
@@ -1709,7 +2540,7 @@ export default function Canvas({
                 </h5>
                 {corrections.length > 0 ? (
                   <div className="space-y-5">
-                    {corrections.map((correction, index) => (
+                    {corrections.map((correction) => (
                       <div key={correction.id} className="correction-item p-5 bg-slate-700/30 rounded-lg border border-slate-600/30 hover:bg-slate-700/40 transition-colors">
                         <div className="flex items-center gap-3 mb-4">
                           <div className={`w-5 h-5 rounded-full flex items-center justify-center ${
@@ -1826,30 +2657,42 @@ export default function Canvas({
               const centerX = canvas.width / 2;
               const centerY = canvas.height / 2;
               
+              const aspectRatio = getSvgAspectRatio(moleculeData.svgData);
+              const baseHeight = 180;
+              const baseWidth = baseHeight * aspectRatio;
+              const startX = centerX - baseWidth / 2;
+              const startY = centerY - baseHeight / 2;
+              const endX = centerX + baseWidth / 2;
+              const endY = centerY + baseHeight / 2;
+
               const newMolecule: Shape = {
                 id: `molecule-${Date.now()}`,
                 type: 'molecule',
-                startX: centerX,
-                startY: centerY,
-                endX: centerX + 100,
-                endY: centerY + 100,
+                startX,
+                startY,
+                endX,
+                endY,
                 color: chemistryColor,
-                size: chemistrySize,
+                strokeColor: chemistryStrokeColor,
+                size: Math.max(baseWidth, baseHeight),
                 rotation: 0,
+                maintainAspect: true,
+                aspectRatio,
+                originalWidth: baseWidth,
+                originalHeight: baseHeight,
+                use3D: false,
+                rotation3D: { ...DEFAULT_MOLECULE_3D_ROTATION },
                 moleculeData: {
-                  name: moleculeData.name,
-                  cid: moleculeData.cid,
-                  formula: moleculeData.formula,
-                  weight: moleculeData.weight,
-                  svgUrl: moleculeData.svgUrl,
-                  svgData: moleculeData.svgData,
-                  smiles: moleculeData.smiles,
+                  ...moleculeData,
+                  displayName: moleculeData.name,
                 }
               };
               
-              // Add to shapes array
-              setShapes([...shapes, newMolecule]);
-              canvasHistoryRef.current = [...shapes, newMolecule];
+              const updatedShapes = [...canvasHistoryRef.current, newMolecule];
+              setShapes(updatedShapes);
+              canvasHistoryRef.current = updatedShapes;
+              setSelectedShapeId(newMolecule.id);
+              setChemistryTool('move');
               
               // Callback if provided
               if (onMoleculeInserted) {

@@ -120,17 +120,7 @@ export default function MoleculeSearch({ onSelectMolecule, isOpen = true, onClos
   const handleInsertMolecule = () => {
     if (moleculeData && onSelectMolecule) {
       // Pass complete molecule data for canvas insertion
-      const moleculeObject = {
-        name: moleculeData.name,
-        cid: moleculeData.cid,
-        formula: moleculeData.molecularFormula,
-        weight: moleculeData.molecularWeight,
-        svgUrl: moleculeData.svgUrl,
-        svgData: moleculeData.svgData,
-        smiles: moleculeData.smiles,
-      };
-      
-      onSelectMolecule(moleculeObject);
+      onSelectMolecule(moleculeData);
       setMoleculeData(null);
       setSearchTerm('');
       if (onClose) onClose();
@@ -296,7 +286,7 @@ export default function MoleculeSearch({ onSelectMolecule, isOpen = true, onClos
                     src={get2DStructureUrl(moleculeData.cid, 500)}
                     alt={moleculeData.name}
                     className="bg-white p-2 rounded border border-slate-600 w-full max-h-80 object-contain"
-                    onError={(e) => {
+                    onError={() => {
                       // Fallback if image fails to load
                       console.error('Failed to load structure image');
                     }}
