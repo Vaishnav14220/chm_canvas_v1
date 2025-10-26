@@ -1,9 +1,13 @@
 // PubChem API Service for fetching molecule structures
 // Documentation: https://pubchem.ncbi.nlm.nih.gov/docs/pug-rest
 
+import type { MoleculeAnalysisResult } from './moleculeAnalysisService';
+
 const PUBCHEM_BASE_URL = 'https://pubchem.ncbi.nlm.nih.gov';
-const PUBCHEM_REST_URL = `${PUBCHEM_BASE_URL}/rest/v1`;
 const PUBCHEM_PUG_URL = `${PUBCHEM_BASE_URL}/rest/pug`;
+const EUTILS_BASE_URL = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils';
+
+export const DEFAULT_REAGENT_QUERY = 'reagent[Chemical Role]';
 
 export interface MoleculeData {
   name: string;
@@ -15,6 +19,14 @@ export interface MoleculeData {
   smiles: string;
   sdfData?: string; // 2D SDF data
   sdf3DData?: string; // 3D SDF data
+  displayName?: string;
+  role?: string;
+  sourceQuery?: string;
+  source?: 'pubchem' | 'cod' | string;
+  codId?: string;
+  cifData?: string;
+  isCrystal?: boolean;
+  analysis?: MoleculeAnalysisResult;
 }
 
 export const fetchCanonicalSmiles = async (input: string): Promise<string | null> => {
@@ -77,79 +89,137 @@ const fetchWithRetry = async (url: string, retries = 3): Promise<Response | null
   return null;
 };
 
+const fetchPreferredSynonym = async (cid: number): Promise<string | null> => {
+  const synonymUrl = `${PUBCHEM_PUG_URL}/compound/cid/${cid}/synonyms/JSON`;
+  try {
+    const response = await fetchWithRetry(synonymUrl);
+    if (!response || !response.ok) {
+      return null;
+    }
+    const data = await response.json();
+    const synonyms: string[] | undefined =
+      data?.InformationList?.Information?.[0]?.Synonym;
+    if (!synonyms || synonyms.length === 0) {
+      return null;
+    }
+    const preferred = synonyms.find((syn) => {
+      if (!syn || typeof syn !== 'string') return false;
+      const trimmed = syn.trim();
+      if (!trimmed) return false;
+      const upper = trimmed.toUpperCase();
+      if (upper.startsWith('CID ')) return false;
+      if (upper.startsWith('UNII-')) return false;
+      if (/^\d+$/.test(trimmed)) return false;
+      return true;
+    });
+    return (preferred || synonyms[0])?.trim() ?? null;
+  } catch (error) {
+    console.warn(`?? Failed to fetch synonyms for CID ${cid}:`, error);
+    return null;
+  }
+};
+
 // Search for molecule by name using PubChem PUG REST API
 export const searchMolecule = async (moleculeName: string): Promise<number | null> => {
+  const rawQuery = moleculeName.trim();
+  if (!rawQuery) {
+    console.warn('⚠️ Empty molecule search query');
+    return null;
+  }
+
   try {
-    console.log(`🔍 Searching PubChem for: ${moleculeName}`);
-    
-    // Method 1: Try using PUG REST API compound name search
-    // Endpoint: /rest/v1/compound/name/{name}/cids/JSON
-    const url = `${PUBCHEM_REST_URL}/compound/name/${encodeURIComponent(moleculeName)}/cids/JSON`;
-    
-    let response = await fetchWithRetry(url);
-    
-    if (response && response.ok) {
+    console.log(`🔍 Searching PubChem for: ${rawQuery}`);
+
+    const attemptParsers = {
+      identifierList: (data: any): number | null => {
+        const cids = data?.IdentifierList?.CID;
+        if (Array.isArray(cids) && cids.length > 0) {
+          const cid = Number(cids[0]);
+          return Number.isFinite(cid) ? cid : null;
+        }
+        return null;
+      },
+      properties: (data: any): number | null => {
+        const props = data?.PropertyTable?.Properties ?? data?.properties;
+        if (Array.isArray(props) && props.length > 0) {
+          const cid = Number(props[0]?.CID);
+          return Number.isFinite(cid) ? cid : null;
+        }
+        return null;
+      },
+      eutils: (data: any): number | null => {
+        const ids = data?.esearchresult?.idlist;
+        if (Array.isArray(ids) && ids.length > 0) {
+          const cid = Number(ids[0]);
+          return Number.isFinite(cid) ? cid : null;
+        }
+        return null;
+      }
+    } as const;
+
+    const tryFetch = async (label: string, url: string, parser: (data: any) => number | null) => {
+      const response = await fetchWithRetry(url);
+      if (!response || !response.ok) {
+        console.warn(`⚠️ ${label} request failed with status ${response?.status}`);
+        return null;
+      }
+
       try {
         const data = await response.json();
-        if (data.IdentifierList?.CID && data.IdentifierList.CID.length > 0) {
-          const cid = data.IdentifierList.CID[0];
-          console.log(`✅ Found CID: ${cid} for ${moleculeName} (Method 1: REST API)`);
+        const cid = parser(data);
+        if (cid) {
+          console.log(`✅ Found CID ${cid} using ${label}`);
           return cid;
         }
-      } catch (parseError) {
-        console.warn(`⚠️ Error parsing JSON response:`, parseError);
+      } catch (error) {
+        console.warn(`⚠️ Failed to parse ${label} response`, error);
       }
-    }
 
-    // Method 2: Try exact compound search with formula
-    console.log(`⚠️ Method 1 failed, trying Method 2 with exact search...`);
-    const formulaUrl = `${PUBCHEM_REST_URL}/compound/name/${encodeURIComponent(moleculeName)}/property/MolecularFormula/JSON`;
-    
-    response = await fetchWithRetry(formulaUrl);
-    if (response && response.ok) {
-      try {
-        const data = await response.json();
-        if (data.properties && data.properties.length > 0) {
-          const cid = data.properties[0].CID;
-          console.log(`✅ Found CID: ${cid} for ${moleculeName} (Method 2: Property search)`);
-          return cid;
-        }
-      } catch (parseError) {
-        console.warn(`⚠️ Method 2 parse error:`, parseError);
-      }
-    }
-
-    // Method 3: Try with common molecule aliases
-    console.log(`⚠️ Method 2 failed, trying Method 3 with common names...`);
-    const commonNames: Record<string, number> = {
-      'methane': 297,
-      'ethane': 6324,
-      'propane': 6334,
-      'butane': 7843,
-      'ethene': 6325,
-      'ethyne': 6326,
-      'benzene': 241,
-      'water': 962,
-      'hydrogen': 783,
-      'oxygen': 977,
-      'carbon dioxide': 280,
-      'co2': 280,
-      'methanol': 887,
-      'ethanol': 702,
-      'acetone': 180,
-      'glucose': 5793,
-      'caffeine': 2519,
-      'aspirin': 2244,
+      return null;
     };
 
-    const lowerName = moleculeName.toLowerCase().trim();
-    if (commonNames[lowerName]) {
-      const cid = commonNames[lowerName];
-      console.log(`✅ Found CID: ${cid} for ${moleculeName} (Method 3: Common names)`);
-      return cid;
+    // 1) Primary: PUG REST compound/name endpoint (handles synonyms and IUPAC names)
+    const primaryUrl = `${PUBCHEM_PUG_URL}/compound/name/${encodeURIComponent(rawQuery)}/cids/JSON`;
+    let cid = await tryFetch('compound-name lookup', primaryUrl, attemptParsers.identifierList);
+    if (cid) return cid;
+
+    // 2) Alternate spellings: try US/UK sulfur/sulphur if applicable
+    if (/sulph/i.test(rawQuery)) {
+      const swapped = rawQuery.replace(/sulph/gi, 'sulf');
+      const swappedUrl = `${PUBCHEM_PUG_URL}/compound/name/${encodeURIComponent(swapped)}/cids/JSON`;
+      cid = await tryFetch('alternate spelling lookup', swappedUrl, attemptParsers.identifierList);
+      if (cid) return cid;
+    } else if (/sulf/i.test(rawQuery)) {
+      const swapped = rawQuery.replace(/sulf/gi, 'sulph');
+      const swappedUrl = `${PUBCHEM_PUG_URL}/compound/name/${encodeURIComponent(swapped)}/cids/JSON`;
+      cid = await tryFetch('alternate spelling lookup', swappedUrl, attemptParsers.identifierList);
+      if (cid) return cid;
     }
 
-    console.warn(`❌ No CID found for "${moleculeName}" in any search method`);
+    // 3) Synonym search (captures brand/legacy names)
+    const synonymUrl = `${PUBCHEM_PUG_URL}/compound/synonym/${encodeURIComponent(rawQuery)}/cids/JSON`;
+    cid = await tryFetch('synonym lookup', synonymUrl, attemptParsers.identifierList);
+    if (cid) return cid;
+
+    // 4) Name-to-property (falls back to property table)
+    const propertyUrl = `${PUBCHEM_PUG_URL}/compound/name/${encodeURIComponent(rawQuery)}/property/MolecularFormula/JSON`;
+    cid = await tryFetch('property lookup', propertyUrl, attemptParsers.properties);
+    if (cid) return cid;
+
+    // 5) Entrez E-utilities search against pccompound (broad fuzzy search)
+    const eutilsUrl = `${EUTILS_BASE_URL}/esearch.fcgi?db=pccompound&term=${encodeURIComponent(rawQuery)}&retmode=json&retmax=5`;
+    cid = await tryFetch('Entrez search', eutilsUrl, attemptParsers.eutils);
+    if (cid) return cid;
+
+    // 6) Final attempt: try quoted term to force exact match
+    const quotedQuery = `"${rawQuery}"`;
+    if (quotedQuery !== rawQuery) {
+      const quotedUrl = `${EUTILS_BASE_URL}/esearch.fcgi?db=pccompound&term=${encodeURIComponent(quotedQuery)}&retmode=json&retmax=5`;
+      cid = await tryFetch('exact Entrez search', quotedUrl, attemptParsers.eutils);
+      if (cid) return cid;
+    }
+
+    console.warn(`❌ No CID found for "${rawQuery}" after all search strategies`);
     return null;
   } catch (error) {
     console.error('❌ Error searching molecule:', error);
@@ -196,6 +266,8 @@ export const fetchMoleculeStructure = async (cid: number): Promise<MoleculeData 
       molecularWeight: 0,
       smiles: '',
       svgUrl: `${PUBCHEM_PUG_URL}/compound/CID/${cid}/PNG?image_size=400x400`,
+      displayName: cidToName[cid] || `CID ${cid}`,
+      source: 'pubchem',
     };
 
     // Try to get properties from API
@@ -205,7 +277,14 @@ export const fetchMoleculeStructure = async (cid: number): Promise<MoleculeData 
     const properties = propsData.properties?.[0];
 
         if (properties) {
-          moleculeData.name = properties.IUPACName || moleculeData.name;
+          const preferredName =
+            properties.IUPACName ||
+            properties.Title ||
+            properties.Synonym?.[0] ||
+            moleculeData.name;
+
+          moleculeData.name = preferredName || moleculeData.name;
+          moleculeData.displayName = preferredName || moleculeData.displayName;
           moleculeData.molecularFormula = properties.MolecularFormula || 'Unknown';
           moleculeData.molecularWeight = properties.MolecularWeight || 0;
           moleculeData.smiles = properties.CanonicalSMILES || '';
@@ -428,6 +507,94 @@ export const getMoleculeByCID = async (cid: number): Promise<MoleculeData | null
   }
 };
 
+export const searchReagentMolecules = async (
+  query: string,
+  maxResults = 12
+): Promise<MoleculeData[]> => {
+  const rawTerm = query.trim() || DEFAULT_REAGENT_QUERY;
+  const cappedMax = Math.min(Math.max(maxResults, 1), 30);
+
+  try {
+    const executeSearch = async (term: string) => {
+      const searchUrl = `${EUTILS_BASE_URL}/esearch.fcgi?db=pccompound&term=${encodeURIComponent(
+        term
+      )}&retmax=${cappedMax}&retmode=json`;
+
+      const response = await fetchWithRetry(searchUrl);
+      if (!response || !response.ok) {
+        console.warn(`?? Reagent search failed for term: ${term}`);
+        return { ids: [] as string[], term };
+      }
+
+      let data: any = null;
+      try {
+        data = await response.json();
+      } catch (parseError) {
+        console.warn('?? Failed to parse reagent search response as JSON', parseError);
+        return { ids: [] as string[], term };
+      }
+
+      const idList: string[] = Array.isArray(data?.esearchresult?.idlist)
+        ? data.esearchresult.idlist
+        : [];
+
+      return { ids: idList, term };
+    };
+
+    const prefer3DTerm = rawTerm.toLowerCase().includes('has_3d_structure')
+      ? rawTerm
+      : `(${rawTerm}) AND has_3d_structure[Filter]`;
+
+    let searchResult = await executeSearch(prefer3DTerm);
+
+    if (searchResult.ids.length === 0 && prefer3DTerm !== rawTerm) {
+      console.warn('?? No reagents found with 3D filter, retrying without filter');
+      searchResult = await executeSearch(rawTerm);
+    }
+
+    if (searchResult.ids.length === 0) {
+      console.warn(`?? No reagent compounds found for term: ${searchResult.term}`);
+      return [];
+    }
+
+    const limitedIds = searchResult.ids.slice(0, cappedMax);
+    const molecules = await Promise.all(
+      limitedIds.map(async (id) => {
+        const cid = Number(id);
+        if (!Number.isFinite(cid)) {
+          return null;
+        }
+
+        const molecule = await getMoleculeByCID(cid);
+        if (!molecule) {
+          return null;
+        }
+
+        let displayName = molecule.displayName || molecule.name || '';
+        if (!displayName || /^CID\s+\d+$/i.test(displayName)) {
+          const synonym = await fetchPreferredSynonym(cid);
+          if (synonym) {
+            displayName = synonym;
+          }
+        }
+
+        return {
+          ...molecule,
+          role: 'reagent',
+          sourceQuery: searchResult.term,
+          displayName: displayName || `CID ${cid}`,
+          source: 'pubchem',
+        } as MoleculeData;
+      })
+    );
+
+    return molecules.filter((molecule): molecule is MoleculeData => molecule !== null);
+  } catch (error) {
+    console.error(`? Error searching reagent molecules with term "${rawTerm}":`, error);
+    return [];
+  }
+};
+
 // Interface for parsed SDF atom data
 export interface AtomData {
   x: number;
@@ -481,7 +648,15 @@ export const parseSDF = (sdfText: string): ParsedSDF | null => {
     const atoms: AtomData[] = [];
     const bonds: BondData[] = [];
 
-    const countsTokens = lines[3].trim().split(/\s+/);
+    const countsLineIndex = (() => {
+      const explicitIndex = lines.findIndex(line => line.includes('V2000') || line.includes('V3000'));
+      if (explicitIndex >= 0) {
+        return explicitIndex;
+      }
+      return Math.min(3, lines.length - 1);
+    })();
+
+    const countsTokens = lines[countsLineIndex].trim().split(/\s+/);
     const atomCount = Number.parseInt(countsTokens[0], 10) || 0;
     const bondCount = Number.parseInt(countsTokens[1], 10) || 0;
 
@@ -490,9 +665,11 @@ export const parseSDF = (sdfText: string): ParsedSDF | null => {
       return Number.isFinite(num) ? num : 0;
     };
 
+    const atomStartLine = countsLineIndex + 1;
+
     // Parse atoms (lines 4..4+atomCount)
-    for (let i = 0; i < atomCount && 4 + i < lines.length; i++) {
-      const atomLine = lines[4 + i];
+    for (let i = 0; i < atomCount && atomStartLine + i < lines.length; i++) {
+      const atomLine = lines[atomStartLine + i];
       const tokens = atomLine.trim().split(/\s+/);
 
       if (tokens.length >= 4) {
@@ -506,7 +683,7 @@ export const parseSDF = (sdfText: string): ParsedSDF | null => {
       }
     }
 
-    const bondsStartLine = 4 + atomCount;
+    const bondsStartLine = atomStartLine + atomCount;
     for (let i = 0; i < bondCount && bondsStartLine + i < lines.length; i++) {
       const bondLine = lines[bondsStartLine + i];
       const tokens = bondLine.trim().split(/\s+/);

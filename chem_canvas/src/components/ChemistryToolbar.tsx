@@ -18,7 +18,10 @@ import {
   Microscope,
   ChevronDown,
   ChevronUp,
-  GripVertical
+  GripVertical,
+  FlaskConical,
+  Gem,
+  Scan
 } from 'lucide-react';
 import ResizeToolbar from './ResizeToolbar';
 
@@ -39,10 +42,20 @@ interface ChemistryToolbarProps {
   onOpenMolView?: () => void;
   onOpenPeriodicTable?: () => void;
   onOpenMoleculeSearch?: () => void;
+  onOpenReagentSearch?: () => void;
+  onOpenMineralSearch?: () => void;
+  onOpenArViewer?: () => void;
   onOpenChemistryWidgets?: () => void;
-  selectedShape?: any;
-  onShapeResize?: (width: number, height: number) => void;
-  onShapeRotate?: (angle: number) => void;
+  selectedShape?: {
+    startX: number;
+    startY: number;
+    endX: number;
+    endY: number;
+    rotation?: number;
+  } | null;
+  selectedMoleculeCid?: string | null;
+  onResize?: (width: number, height: number) => void;
+  onRotate?: (angle: number) => void;
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
   width?: number;
@@ -64,10 +77,14 @@ const ChemistryToolbar: React.FC<ChemistryToolbarProps> = ({
   onOpenMolView,
   onOpenPeriodicTable,
   onOpenMoleculeSearch,
+  onOpenReagentSearch,
+  onOpenMineralSearch,
+  onOpenArViewer,
   onOpenChemistryWidgets,
   selectedShape,
-  onShapeResize,
-  onShapeRotate,
+  selectedMoleculeCid,
+  onResize,
+  onRotate,
   isCollapsed = false,
   onToggleCollapse,
   width,
@@ -99,9 +116,12 @@ const ChemistryToolbar: React.FC<ChemistryToolbarProps> = ({
     { id: 'minus', name: 'Minus', icon: Minus, description: 'Minus sign for ions' },
     { id: 'equal', name: 'Equal', icon: Equal, description: 'Equilibrium arrows' },
     { id: 'calculator', name: 'Calculator', icon: Calculator, description: 'Quick calculations', isSpecial: true },
-    { id: 'molview', name: '3D Molecules', icon: MolViewIcon, description: '3D molecular viewer', isSpecial: true },
+  { id: 'molview', name: '3D Molecules', icon: MolViewIcon, description: '3D molecular viewer', isSpecial: true },
+  { id: 'ar', name: 'AR Viewer', icon: Scan, description: 'Place molecules in AR', isSpecial: true },
     { id: 'periodic', name: 'Periodic Table', icon: Grid3X3, description: 'Interactive periodic table', isSpecial: true },
     { id: 'molecules', name: 'Search Molecules', icon: Microscope, description: 'Search molecules from PubChem', isSpecial: true },
+  { id: 'reagents', name: 'Search Reagents', icon: FlaskConical, description: 'Find reagent molecules', isSpecial: true },
+  { id: 'minerals', name: 'Search Minerals', icon: Gem, description: 'Pull 3D minerals from COD', isSpecial: true },
     { id: 'widgets', name: 'Chemistry Widgets', icon: Beaker, description: 'Interactive chemistry tools', isSpecial: true },
     { id: 'move', name: 'Move', icon: Move, description: 'Move elements' },
     { id: 'rotate', name: 'Rotate', icon: RotateCw, description: 'Rotate elements' },
@@ -191,17 +211,24 @@ const ChemistryToolbar: React.FC<ChemistryToolbarProps> = ({
                       onOpenCalculator();
                     } else if (tool.isSpecial && tool.id === 'molview' && onOpenMolView) {
                       onOpenMolView();
+                    } else if (tool.isSpecial && tool.id === 'ar' && onOpenArViewer) {
+                      onOpenArViewer();
                     } else if (tool.isSpecial && tool.id === 'periodic' && onOpenPeriodicTable) {
                       onOpenPeriodicTable();
                     } else if (tool.isSpecial && tool.id === 'molecules' && onOpenMoleculeSearch) {
                       onOpenMoleculeSearch();
+                    } else if (tool.isSpecial && tool.id === 'reagents' && onOpenReagentSearch) {
+                      onOpenReagentSearch();
+                    } else if (tool.isSpecial && tool.id === 'minerals' && onOpenMineralSearch) {
+                      onOpenMineralSearch();
                     } else if (tool.isSpecial && tool.id === 'widgets' && onOpenChemistryWidgets) {
                       onOpenChemistryWidgets();
                     } else {
                       onToolSelect(tool.id);
                     }
                   }}
-                  className={`group flex h-20 flex-col items-center justify-center gap-2 rounded-xl border border-slate-700/60 px-3 text-[13px] font-medium transition-all ${
+                  disabled={tool.id === 'ar' && !selectedMoleculeCid}
+                  className={`group flex h-20 flex-col items-center justify-center gap-2 rounded-xl border border-slate-700/60 px-3 text-[13px] font-medium transition-all disabled:cursor-not-allowed disabled:opacity-60 ${
                     tool.isSpecial
                       ? 'border-primary/60 bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20 hover:bg-primary'
                       : currentTool === tool.id
@@ -321,8 +348,17 @@ const ChemistryToolbar: React.FC<ChemistryToolbarProps> = ({
             <h3 className="text-sm font-semibold text-slate-300">Resize &amp; Rotate</h3>
             <div className="rounded-2xl border border-slate-700/60 bg-slate-800/70 p-3">
               <ResizeToolbar
-                onShapeResize={onShapeResize}
-                onShapeRotate={onShapeRotate}
+                selectedShape={selectedShape ?? null}
+                onResize={(width, height) => {
+                  if (onResize) {
+                    onResize(width, height);
+                  }
+                }}
+                onRotate={(angle) => {
+                  if (onRotate) {
+                    onRotate(angle);
+                  }
+                }}
               />
             </div>
           </section>

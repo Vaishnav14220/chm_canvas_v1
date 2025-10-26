@@ -1,10 +1,12 @@
 import { useRef, useEffect, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import { ZoomIn, ZoomOut, Grid3x3, RotateCcw, CheckCircle, AlertCircle, Loader2, Trash2, Brain, Sparkles, Atom, Beaker, Moon, Sun, Lightbulb } from 'lucide-react';
+import { ZoomIn, ZoomOut, Grid3x3, RotateCcw, CheckCircle, AlertCircle, Loader2, Trash2, Brain, Sparkles, Atom, Beaker, Moon, Sun, Lightbulb, FlaskConical, Gem, Scan } from 'lucide-react';
 import { analyzeCanvasWithLLM, getStoredAPIKey, type Correction, type CanvasAnalysisResult } from '../services/canvasAnalyzer';
 import { convertCanvasToChemistry } from '../services/chemistryConverter';
 import MoleculeSearch from './MoleculeSearch';
-import { type MoleculeData, parseSDF, type ParsedSDF, getMolViewUrl, getMolViewUrlFromSmiles } from '../services/pubchemService';
+import MineralSearch from './MineralSearch';
+import ReagentSearch from './ReagentSearch';
+import { type MoleculeData, parseSDF, type ParsedSDF, getMolViewUrl, getMolViewUrlFromSmiles, getMoleculeByCID } from '../services/pubchemService';
 import ChemistryToolbar from './ChemistryToolbar';
 import ChemistryStructureViewer from './ChemistryStructureViewer';
 import ChemistryWidgetPanel from './ChemistryWidgetPanel';
@@ -24,6 +26,23 @@ const ATOM_COLORS: Record<string, string> = {
   F: '#22d3ee',
   I: '#a78bfa'
 };
+
+const DEFAULT_ANNOTATION_LABELS = [
+  'Active center',
+  'Leaving group',
+  'Nucleophilic center',
+  'Electrophilic center',
+  'Transition state',
+  'Intermediate',
+  'Catalyst'
+];
+
+interface MoleculeAnnotation {
+  id: string;
+  atomIndex: number;
+  label: string;
+  color: string;
+}
 
 interface CanvasProps {
   currentTool: string;
@@ -70,8 +89,36 @@ export default function Canvas({
   const [isConverting, setIsConverting] = useState(false);
   const [canvasBackground, setCanvasBackground] = useState<'dark' | 'white'>('dark');
   const [showMoleculeSearch, setShowMoleculeSearch] = useState(false);
+  const [showMineralSearch, setShowMineralSearch] = useState(false);
+  const [showReagentSearch, setShowReagentSearch] = useState(false);
   const [forceRedraw, setForceRedraw] = useState(0); // New state for forcing redraw
   const [showChemistryWidgetPanel, setShowChemistryWidgetPanel] = useState(false);
+  const [annotationLabelOptions, setAnnotationLabelOptions] = useState<string[]>(() => [...DEFAULT_ANNOTATION_LABELS]);
+  const [annotationLabel, setAnnotationLabel] = useState(DEFAULT_ANNOTATION_LABELS[0]);
+  const [customAnnotationLabel, setCustomAnnotationLabel] = useState('');
+  const [annotationColor, setAnnotationColor] = useState('#f97316');
+  const [annotationMode, setAnnotationMode] = useState<{
+    shapeId: string;
+    label: string;
+    color: string;
+  } | null>(null);
+  const [annotationHint, setAnnotationHint] = useState<string | null>(null);
+
+  const addCustomAnnotationLabel = () => {
+    const trimmed = customAnnotationLabel.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    setAnnotationLabel(trimmed);
+    setAnnotationLabelOptions(prev => {
+      if (prev.some(option => option.toLowerCase() === trimmed.toLowerCase())) {
+        return prev;
+      }
+      return [...prev, trimmed];
+    });
+    setCustomAnnotationLabel('');
+  };
 
   // Arrow drawing state - single resizable arrow
   const [arrowState, setArrowState] = useState<{
@@ -89,6 +136,9 @@ export default function Canvas({
   // Cache for parsed SDF structures
   const sdfCacheRef = useRef<Map<string, ParsedSDF>>(new Map());
 
+  // Cache for projected atom positions on canvas for annotation placement
+  const moleculeProjectionRef = useRef<Map<string, Array<{ atomIndex: number; x: number; y: number }>>>(new Map());
+
   // Shape tracking for repositioning
   interface Shape {
     id: string;
@@ -105,8 +155,8 @@ export default function Canvas({
     rotation: number;  // Rotation in degrees (0-360)
     maintainAspect?: boolean;
     aspectRatio?: number;
-  originalWidth?: number;
-  originalHeight?: number;
+    originalWidth?: number;
+    originalHeight?: number;
     // Molecule-specific properties
     moleculeData?: MoleculeData & {
       displayName?: string;
@@ -116,6 +166,7 @@ export default function Canvas({
       x: number;
       y: number;
     };
+    annotations?: MoleculeAnnotation[];
   }
 
   const [shapes, setShapes] = useState<Shape[]>([]);
@@ -126,6 +177,19 @@ export default function Canvas({
       selectedShape.type === 'molecule' &&
       selectedShape.moleculeData?.sdf3DData
   );
+  const selectedMoleculeCid = (() => {
+    if (!selectedShape || selectedShape.type !== 'molecule' || !selectedShape.moleculeData) {
+      return null;
+    }
+
+    const { cid } = selectedShape.moleculeData;
+    if (cid === undefined || cid === null) {
+      return null;
+    }
+
+    const normalized = typeof cid === 'number' ? cid.toString() : `${cid}`.trim();
+    return normalized.length ? normalized : null;
+  })();
   const [isDraggingShape, setIsDraggingShape] = useState(false);
   const [isRotatingShape, setIsRotatingShape] = useState(false);
   const [isRotating3DShape, setIsRotating3DShape] = useState(false);
@@ -207,6 +271,15 @@ export default function Canvas({
     }
   };
 
+  const openArViewer = () => {
+    if (typeof window === 'undefined' || !selectedMoleculeCid) {
+      return;
+    }
+
+    const targetUrl = `${window.location.origin}/ar/${encodeURIComponent(selectedMoleculeCid)}`;
+    window.open(targetUrl, '_blank', 'noopener,noreferrer');
+  };
+
   const toggleSelectedMolecule3D = (enabled: boolean) => {
     if (!selectedShapeId || selectedShape?.type !== 'molecule') {
       return;
@@ -219,6 +292,11 @@ export default function Canvas({
         ? shape.rotation3D ?? { ...DEFAULT_MOLECULE_3D_ROTATION }
         : shape.rotation3D
     }));
+
+    if (!enabled) {
+      setAnnotationMode(prev => (prev && prev.shapeId === selectedShapeId ? null : prev));
+      setAnnotationHint(null);
+    }
   };
 
   const resetSelectedMolecule3DOrientation = () => {
@@ -229,6 +307,13 @@ export default function Canvas({
     updateShapeById(selectedShapeId, shape => ({
       ...shape,
       rotation3D: { ...DEFAULT_MOLECULE_3D_ROTATION }
+    }));
+  };
+
+  const removeAnnotation = (shapeId: string, annotationId: string) => {
+    updateShapeById(shapeId, shape => ({
+      ...shape,
+      annotations: (shape.annotations ?? []).filter(annotation => annotation.id !== annotationId)
     }));
   };
 
@@ -244,6 +329,11 @@ export default function Canvas({
     setChemistryStrokeColor(optimalColor);
     setChemistryFillColor(optimalColor);
   }, [canvasBackground]);
+
+  useEffect(() => {
+    setAnnotationHint(null);
+    setAnnotationMode(prev => (prev && prev.shapeId !== selectedShapeId ? null : prev));
+  }, [selectedShapeId]);
 
   useEffect(() => {
     if (!isResizingToolbar) {
@@ -516,7 +606,143 @@ export default function Canvas({
       }
     }
 
-    return 1;
+  return 1;
+  };
+
+  const ensureCompleteMoleculeData = async (data: MoleculeData): Promise<MoleculeData> => {
+    const needsHydration = !data.svgData || !data.sdfData || !data.sdf3DData;
+    if (!needsHydration) {
+      return data;
+    }
+
+    try {
+      const refreshed = await getMoleculeByCID(data.cid);
+      if (!refreshed) {
+        console.warn('?? Reagent hydration returned null for CID', data.cid);
+        return data;
+      }
+
+      const hydrated = {
+        ...refreshed,
+        // Preserve any enhanced/sanitised fields from the original payload
+        name: data.name || refreshed.name,
+        svgData: data.svgData ?? refreshed.svgData,
+        sdfData: data.sdfData ?? refreshed.sdfData,
+        sdf3DData: data.sdf3DData ?? refreshed.sdf3DData,
+        role: data.role ?? refreshed.role,
+        sourceQuery: data.sourceQuery ?? refreshed.sourceQuery,
+        displayName: data.displayName ?? refreshed.displayName,
+      };
+
+      console.log(
+        '? Hydrated molecule',
+        hydrated.cid,
+        {
+          hasSVG: Boolean(hydrated.svgData),
+          hasSDF2D: Boolean(hydrated.sdfData),
+          hasSDF3D: Boolean(hydrated.sdf3DData),
+          role: hydrated.role,
+        }
+      );
+      return hydrated;
+    } catch (error) {
+      console.warn('?? Failed to hydrate molecule assets from PubChem, using existing payload', error);
+      return data;
+    }
+  };
+
+  const insertMoleculeToCanvas = async (incomingData: MoleculeData) => {
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      return;
+    }
+
+    const moleculeData = await ensureCompleteMoleculeData(incomingData);
+
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+
+    let aspectRatio = getSvgAspectRatio(moleculeData.svgData);
+    if (!aspectRatio || !Number.isFinite(aspectRatio) || aspectRatio <= 0) {
+      const parsed = moleculeData.sdfData ? parseSDF(moleculeData.sdfData) : null;
+      if (parsed && parsed.atoms.length > 0) {
+        const bounds = parsed.atoms.reduce(
+          (acc, atom) => ({
+            minX: Math.min(acc.minX, atom.x),
+            maxX: Math.max(acc.maxX, atom.x),
+            minY: Math.min(acc.minY, atom.y),
+            maxY: Math.max(acc.maxY, atom.y),
+          }),
+          {
+            minX: Number.POSITIVE_INFINITY,
+            maxX: Number.NEGATIVE_INFINITY,
+            minY: Number.POSITIVE_INFINITY,
+            maxY: Number.NEGATIVE_INFINITY,
+          }
+        );
+        const width = Math.max(1, bounds.maxX - bounds.minX);
+        const height = Math.max(1, bounds.maxY - bounds.minY);
+        aspectRatio = width / height || 1;
+      }
+    }
+
+    if (!aspectRatio || !Number.isFinite(aspectRatio) || aspectRatio <= 0) {
+      aspectRatio = 1;
+    }
+
+    const baseHeight = 180;
+    const baseWidth = baseHeight * aspectRatio;
+    const startX = centerX - baseWidth / 2;
+    const startY = centerY - baseHeight / 2;
+    const endX = centerX + baseWidth / 2;
+    const endY = centerY + baseHeight / 2;
+
+    const baseDisplayName =
+      moleculeData.displayName ?? moleculeData.name ?? `CID ${moleculeData.cid}`;
+
+    const displayName =
+      moleculeData.role === 'reagent' &&
+      baseDisplayName &&
+      !baseDisplayName.toLowerCase().includes('reagent')
+        ? `${baseDisplayName} (Reagent)`
+        : baseDisplayName;
+
+    const has3DSDF = Boolean(moleculeData.sdf3DData && moleculeData.sdf3DData.trim().length > 0);
+
+    const newMolecule: Shape = {
+      id: `molecule-${Date.now()}`,
+      type: 'molecule',
+      startX,
+      startY,
+      endX,
+      endY,
+      color: chemistryColor,
+      strokeColor: chemistryStrokeColor,
+      size: Math.max(baseWidth, baseHeight),
+      rotation: 0,
+      maintainAspect: true,
+      aspectRatio,
+      originalWidth: baseWidth,
+      originalHeight: baseHeight,
+      use3D: has3DSDF,
+      rotation3D: { ...DEFAULT_MOLECULE_3D_ROTATION },
+      moleculeData: {
+        ...moleculeData,
+        displayName,
+      },
+    };
+
+    const updatedShapes = [...canvasHistoryRef.current, newMolecule];
+    setShapes(updatedShapes);
+    canvasHistoryRef.current = updatedShapes;
+    setSelectedShapeId(newMolecule.id);
+    setChemistryTool('move');
+
+    if (onMoleculeInserted) {
+      onMoleculeInserted(moleculeData);
+    }
+
+    console.log('? Molecule added to canvas:', newMolecule);
   };
 
   const drawAreaEraseOverlay = (
@@ -619,6 +845,48 @@ export default function Canvas({
     const rect = canvas.getBoundingClientRect();
     const x = (e.clientX - rect.left) / zoom;
     const y = (e.clientY - rect.top) / zoom;
+
+    if (annotationMode && annotationMode.shapeId === selectedShapeId && e.button === 0) {
+      e.preventDefault();
+      const projections = moleculeProjectionRef.current.get(annotationMode.shapeId) || [];
+      if (projections.length === 0) {
+        setAnnotationHint('No molecular coordinates available yet. Try again after the structure renders.');
+        setAnnotationMode(null);
+        return;
+      }
+
+      let nearest = { index: -1, distance: Number.POSITIVE_INFINITY };
+      projections.forEach(point => {
+        const dist = Math.hypot(point.x - x, point.y - y);
+        if (dist < nearest.distance) {
+          nearest = { index: point.atomIndex, distance: dist };
+        }
+      });
+
+      const MAX_DISTANCE = 48;
+      if (nearest.index === -1 || nearest.distance > MAX_DISTANCE) {
+        setAnnotationHint('Click closer to the atom you want to annotate.');
+        return;
+      }
+
+      updateShapeById(annotationMode.shapeId, shape => ({
+        ...shape,
+        annotations: [
+          ...(shape.annotations ?? []),
+          {
+            id: `annotation-${Date.now()}`,
+            atomIndex: nearest.index,
+            label: annotationMode.label.trim() || 'Annotation',
+            color: annotationMode.color,
+          }
+        ]
+      }));
+
+      setAnnotationHint('Annotation added.');
+      setAnnotationMode(null);
+      setIsDrawing(false);
+      return;
+    }
 
     const activeTool = showChemistryToolbar ? chemistryTool : currentTool;
 
@@ -768,6 +1036,10 @@ export default function Canvas({
     const rect = canvas.getBoundingClientRect();
     const x = (e.clientX - rect.left) / zoom;
     const y = (e.clientY - rect.top) / zoom;
+
+    if (annotationMode && annotationMode.shapeId === selectedShapeId) {
+      return;
+    }
 
     if (isRotating3DShape && selectedShapeId && rotate3DStateRef.current) {
       const start = rotate3DStateRef.current;
@@ -1277,6 +1549,77 @@ export default function Canvas({
     const centerY = shape.startY + height / 2;
     const rotation = (shape.rotation ?? 0) * (Math.PI / 180);
     const is3DMode = Boolean(shape.use3D && data.sdf3DData);
+    const cosRotation = Math.cos(rotation);
+    const sinRotation = Math.sin(rotation);
+
+    const storeProjection = (projected: Array<{ atomIndex: number; x: number; y: number }>) => {
+      if (!projected.length) {
+        moleculeProjectionRef.current.delete(shape.id);
+        return;
+      }
+
+      const globalPoints = projected.map(point => ({
+        atomIndex: point.atomIndex,
+        x: centerX + point.x * cosRotation - point.y * sinRotation,
+        y: centerY + point.x * sinRotation + point.y * cosRotation
+      }));
+
+      moleculeProjectionRef.current.set(shape.id, globalPoints);
+    };
+
+    const renderAnnotationsOverlay = () => {
+      const annotations = shape.annotations ?? [];
+      if (!annotations.length) return;
+
+      const projection = moleculeProjectionRef.current.get(shape.id);
+      if (!projection || projection.length === 0) return;
+
+      ctx.save();
+      annotations.forEach(annotation => {
+        const target = projection.find(point => point.atomIndex === annotation.atomIndex);
+        if (!target) return;
+
+        const markerRadius = 7;
+        const labelPadding = 6;
+        const labelHeight = 18;
+        const labelOffsetX = 14;
+        const labelOffsetY = -22;
+        const labelText = annotation.label || 'Annotation';
+
+        ctx.fillStyle = annotation.color;
+        ctx.beginPath();
+        ctx.arc(target.x, target.y, markerRadius, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = '#0f172a';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        const labelX = target.x + labelOffsetX;
+        const labelY = target.y + labelOffsetY;
+        ctx.font = '12px "Inter", sans-serif';
+        const metrics = ctx.measureText(labelText);
+        const labelWidth = metrics.width + labelPadding * 2;
+
+        ctx.beginPath();
+        ctx.moveTo(target.x + markerRadius, target.y);
+        ctx.lineTo(labelX, labelY + labelHeight / 2);
+        ctx.strokeStyle = annotation.color;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+        ctx.fillRect(labelX, labelY, labelWidth, labelHeight);
+        ctx.strokeStyle = annotation.color;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(labelX, labelY, labelWidth, labelHeight);
+
+        ctx.fillStyle = '#e2e8f0';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(labelText, labelX + labelPadding, labelY + labelHeight / 2);
+      });
+      ctx.restore();
+    };
 
     const render2DStructure = (parsed: ParsedSDF) => {
       if (!parsed.atoms.length) return;
@@ -1320,29 +1663,31 @@ export default function Canvas({
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
 
+      const projectedAtoms = parsed.atoms.map((atom, index) => ({
+        atomIndex: index,
+        ...project(atom)
+      }));
+
       ctx.strokeStyle = '#94a3b8';
       ctx.lineWidth = bondStrokeWidth;
 
       parsed.bonds.forEach(bond => {
-        const atom1 = parsed.atoms[bond.from];
-        const atom2 = parsed.atoms[bond.to];
+        const atom1 = projectedAtoms[bond.from];
+        const atom2 = projectedAtoms[bond.to];
         if (!atom1 || !atom2) return;
-
-        const p1 = project(atom1);
-        const p2 = project(atom2);
 
         const drawBondLine = (offsetX: number, offsetY: number) => {
           ctx.beginPath();
-          ctx.moveTo(p1.x + offsetX, p1.y + offsetY);
-          ctx.lineTo(p2.x + offsetX, p2.y + offsetY);
+          ctx.moveTo(atom1.x + offsetX, atom1.y + offsetY);
+          ctx.lineTo(atom2.x + offsetX, atom2.y + offsetY);
           ctx.stroke();
         };
 
         drawBondLine(0, 0);
 
         if (bond.type === 2 || bond.type === 3) {
-          const dx = p2.x - p1.x;
-          const dy = p2.y - p1.y;
+          const dx = atom2.x - atom1.x;
+          const dy = atom2.y - atom1.y;
           const len = Math.hypot(dx, dy) || 1;
           const offsetX = (-dy / len) * multipleBondOffset;
           const offsetY = (dx / len) * multipleBondOffset;
@@ -1355,29 +1700,37 @@ export default function Canvas({
         }
       });
 
-      parsed.atoms.forEach(atom => {
-        const { x, y } = project(atom);
-        const color = ATOM_COLORS[atom.element] || '#cbd5f5';
+      projectedAtoms.forEach(atom => {
+        const color = ATOM_COLORS[parsed.atoms[atom.atomIndex].element] || '#cbd5f5';
 
         ctx.fillStyle = color;
         ctx.beginPath();
-        ctx.arc(x, y, atomRadius, 0, Math.PI * 2);
+        ctx.arc(atom.x, atom.y, atomRadius, 0, Math.PI * 2);
         ctx.fill();
 
         ctx.strokeStyle = '#0f172a';
         ctx.lineWidth = 1;
         ctx.stroke();
 
-        if (atom.element !== 'H') {
+        const elementSymbol = parsed.atoms[atom.atomIndex].element;
+        if (elementSymbol !== 'H') {
           ctx.fillStyle = '#0f172a';
           ctx.font = `${Math.max(10, atomRadius * 1.8)}px sans-serif`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
-          ctx.fillText(atom.element, x, y);
+          ctx.fillText(elementSymbol, atom.x, atom.y);
         }
       });
 
       ctx.restore();
+
+      const projectionPayload = projectedAtoms.map(atom => ({
+        atomIndex: atom.atomIndex,
+        x: atom.x,
+        y: atom.y
+      }));
+      storeProjection(projectionPayload);
+      renderAnnotationsOverlay();
     };
 
     const render3DStructure = (parsed: ParsedSDF) => {
@@ -1552,6 +1905,14 @@ export default function Canvas({
       });
 
       ctx.restore();
+
+      const projectionPayload = projectedAtoms.map(atom => ({
+        atomIndex: atom.index,
+        x: atom.x,
+        y: atom.y
+      }));
+      storeProjection(projectionPayload);
+      renderAnnotationsOverlay();
     };
 
     const sdfSource = (is3DMode ? data.sdf3DData : data.sdfData)?.trim();
@@ -1564,6 +1925,8 @@ export default function Canvas({
           parsed = parseSDF(sdfSource) ?? undefined;
           if (parsed) {
             sdfCacheRef.current.set(cacheKey, parsed);
+          } else {
+            console.warn('?? parseSDF returned null for molecule', data.cid, 'mode', is3DMode ? '3D' : '2D');
           }
         } catch (error) {
           console.warn('Error parsing SDF for molecule:', data.name, error);
@@ -1579,7 +1942,30 @@ export default function Canvas({
         render2DStructure(parsed);
         return;
       }
+
+      if (is3DMode && data.sdfData && data.sdfData.trim().length > 0) {
+        console.warn('?? Falling back to 2D SDF rendering for molecule', data.cid);
+        const cacheKey2D = `${data.cid ?? data.name}-2d`;
+        let parsed2D = sdfCacheRef.current.get(cacheKey2D);
+        if (!parsed2D) {
+          try {
+            parsed2D = parseSDF(data.sdfData) ?? undefined;
+            if (parsed2D) {
+              sdfCacheRef.current.set(cacheKey2D, parsed2D);
+            }
+          } catch (error) {
+            console.warn('Error parsing fallback 2D SDF for molecule:', data.name, error);
+          }
+        }
+
+        if (parsed2D) {
+          render2DStructure(parsed2D);
+          return;
+        }
+      }
     }
+
+    moleculeProjectionRef.current.delete(shape.id);
 
     const cid = data.cid;
     const cache = moleculeImageCacheRef.current;
@@ -2180,11 +2566,15 @@ export default function Canvas({
             onOpenMolView={onOpenMolView}
             onOpenPeriodicTable={onOpenPeriodicTable}
             onOpenMoleculeSearch={() => setShowMoleculeSearch(true)}
+            onOpenMineralSearch={() => setShowMineralSearch(true)}
+            onOpenReagentSearch={() => setShowReagentSearch(true)}
+            onOpenArViewer={openArViewer}
             onOpenChemistryWidgets={() => setShowChemistryWidgetPanel(true)}
             isCollapsed={isToolbarCollapsed}
             onToggleCollapse={() => setIsToolbarCollapsed((prev) => !prev)}
             width={toolbarWidth}
             onResizeStart={handleToolbarResizeStart}
+            selectedMoleculeCid={selectedMoleculeCid}
           />
         </div>
       )}
@@ -2218,14 +2608,42 @@ export default function Canvas({
       </div>
 
       {/* Canvas Controls */}
-      <div className="absolute top-8 right-8 z-10 flex flex-col items-end gap-3">
+      <div className="absolute right-8 top-1/2 z-10 flex -translate-y-1/2 flex-col items-end gap-3 transform">
         <button
           onClick={() => setShowMoleculeSearch(true)}
-          className="inline-flex items-center gap-2 rounded-xl border border-slate-700/60 bg-slate-800/80 px-4 py-2 text-sm font-medium text-slate-200 shadow-lg transition-all hover:bg-slate-700/60"
+          className="inline-flex w-52 transform items-center gap-3 rounded-2xl border border-slate-600/60 bg-slate-900/90 px-5 py-3 text-base font-semibold text-slate-100 shadow-xl transition-transform transition-colors hover:-translate-y-0.5 hover:bg-slate-700/70 focus:outline-none focus:ring-2 focus:ring-blue-400/70 disabled:cursor-not-allowed disabled:opacity-60"
           title="Search Molecules"
         >
           <Atom size={18} className="text-blue-300" />
           <span>Search Molecules</span>
+        </button>
+
+        <button
+          onClick={() => setShowMineralSearch(true)}
+          className="inline-flex w-52 transform items-center gap-3 rounded-2xl border border-slate-600/60 bg-slate-900/90 px-5 py-3 text-base font-semibold text-slate-100 shadow-xl transition-transform transition-colors hover:-translate-y-0.5 hover:bg-slate-700/70 focus:outline-none focus:ring-2 focus:ring-emerald-400/70 disabled:cursor-not-allowed disabled:opacity-60"
+          title="Search Minerals"
+        >
+          <Gem size={18} className="text-emerald-300" />
+          <span>Search Minerals</span>
+        </button>
+
+        <button
+          onClick={() => setShowReagentSearch(true)}
+          className="inline-flex w-52 transform items-center gap-3 rounded-2xl border border-slate-600/60 bg-slate-900/90 px-5 py-3 text-base font-semibold text-slate-100 shadow-xl transition-transform transition-colors hover:-translate-y-0.5 hover:bg-slate-700/70 focus:outline-none focus:ring-2 focus:ring-cyan-400/70 disabled:cursor-not-allowed disabled:opacity-60"
+          title="Search Reagents"
+        >
+          <FlaskConical size={18} className="text-cyan-300" />
+          <span>Search Reagents</span>
+        </button>
+
+        <button
+          onClick={openArViewer}
+          disabled={!selectedMoleculeCid}
+          className="inline-flex w-52 transform items-center gap-3 rounded-2xl border border-slate-600/60 bg-slate-900/90 px-5 py-3 text-base font-semibold text-slate-100 shadow-xl transition-transform transition-colors hover:-translate-y-0.5 hover:bg-slate-700/70 focus:outline-none focus:ring-2 focus:ring-purple-400/70 disabled:cursor-not-allowed disabled:opacity-60"
+          title={selectedMoleculeCid ? 'View selected molecule in AR' : 'Select a molecule on the canvas to enable AR viewer'}
+        >
+          <Scan size={18} className="text-purple-300" />
+          <span>Start AR Viewer</span>
         </button>
 
         <div className="bg-slate-800/90 backdrop-blur-sm border border-slate-700/50 rounded-xl p-2 shadow-lg">
@@ -2443,6 +2861,149 @@ export default function Canvas({
                     </button>
                   </>
                 )}
+
+                {selectedShape.use3D && (
+                  <div className="rounded-lg border border-slate-700/60 bg-slate-800/70 p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-300 mb-2">Annotations</p>
+                    <div className="space-y-3">
+                      <div className="space-y-1">
+                        <label className="text-[11px] text-slate-400">Label</label>
+                        <input
+                          type="text"
+                          value={annotationLabel}
+                          onChange={(event) => setAnnotationLabel(event.target.value)}
+                          className="w-full rounded-lg border border-slate-700 bg-slate-900/80 px-2 py-1 text-xs text-slate-200 focus:border-cyan-500 focus:outline-none"
+                          placeholder="e.g., Active site"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <span className="text-[11px] text-slate-400">Quick labels</span>
+                        <div className="flex flex-wrap gap-2">
+                          {annotationLabelOptions.map(option => (
+                            <button
+                              key={option}
+                              type="button"
+                              onClick={() => setAnnotationLabel(option)}
+                              className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+                                annotationLabel.toLowerCase() === option.toLowerCase()
+                                  ? 'bg-cyan-500/90 text-slate-900 border-cyan-400 hover:bg-cyan-400'
+                                  : 'bg-slate-900/60 text-slate-200 border-slate-700/60 hover:bg-slate-800'
+                              }`}
+                            >
+                              {option}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={customAnnotationLabel}
+                            onChange={(event) => setCustomAnnotationLabel(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') {
+                                event.preventDefault();
+                                addCustomAnnotationLabel();
+                              }
+                            }}
+                            className="w-full rounded-lg border border-slate-700 bg-slate-900/80 px-2 py-1 text-xs text-slate-200 focus:border-cyan-500 focus:outline-none"
+                            placeholder="Add custom label"
+                          />
+                          <button
+                            type="button"
+                            onClick={addCustomAnnotationLabel}
+                            disabled={!customAnnotationLabel.trim()}
+                            className="rounded-lg border border-slate-700/60 bg-slate-900/80 px-3 py-1 text-xs font-semibold text-slate-200 transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            Add
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <span className="text-[11px] text-slate-400">Color</span>
+                        <div className="flex flex-wrap gap-2">
+                          {['#f97316', '#facc15', '#38bdf8', '#22d3ee', '#a855f7', '#34d399'].map(color => (
+                            <button
+                              key={color}
+                              type="button"
+                              onClick={() => setAnnotationColor(color)}
+                              className={`h-6 w-6 rounded-full border-2 ${annotationColor === color ? 'border-white' : 'border-transparent'} shadow-lg`}
+                              style={{ backgroundColor: color }}
+                              title={color}
+                            />
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!selectedShapeId) return;
+                            setAnnotationMode({
+                              shapeId: selectedShapeId,
+                              label: annotationLabel,
+                              color: annotationColor
+                            });
+                            setAnnotationHint('Click on the atom you want to highlight.');
+                          }}
+                          className={`w-full rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
+                            annotationMode?.shapeId === selectedShapeId
+                              ? 'bg-cyan-500 text-slate-900 hover:bg-cyan-400'
+                              : 'bg-slate-900/80 text-slate-200 border border-slate-700/60 hover:bg-slate-800'
+                          }`}
+                        >
+                          {annotationMode?.shapeId === selectedShapeId ? 'Annotation Mode Active' : 'Mark Active Centre'}
+                        </button>
+                        {annotationMode?.shapeId === selectedShapeId && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAnnotationMode(null);
+                              setAnnotationHint(null);
+                            }}
+                            className="w-full rounded-lg border border-slate-700/60 bg-slate-800/80 px-3 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-800"
+                          >
+                            Cancel Annotation
+                          </button>
+                        )}
+                        {annotationHint && (
+                          <p className="text-[11px] text-cyan-300">{annotationHint}</p>
+                        )}
+                      </div>
+
+                      {selectedShape.annotations && selectedShape.annotations.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-[11px] text-slate-400 uppercase tracking-wide">Current highlights</p>
+                          <div className="space-y-2 max-h-32 overflow-y-auto pr-1">
+                            {selectedShape.annotations.map(annotation => (
+                              <div
+                                key={annotation.id}
+                                className="flex items-center justify-between rounded-lg border border-slate-700/60 bg-slate-900/80 px-2 py-2 text-xs text-slate-200"
+                              >
+                                <span className="flex items-center gap-2">
+                                  <span
+                                    className="inline-flex h-3 w-3 rounded-full"
+                                    style={{ backgroundColor: annotation.color }}
+                                  />
+                                  {annotation.label}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => removeAnnotation(selectedShape.id, annotation.id)}
+                                  className="text-slate-400 hover:text-red-400"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <p className="mt-3 text-xs text-slate-400">
@@ -2651,57 +3212,53 @@ export default function Canvas({
         <MoleculeSearch
           onClose={() => setShowMoleculeSearch(false)}
           onSelectMolecule={(moleculeData) => {
-            // Add molecule to canvas at center position
-            const canvas = canvasRef.current;
-            if (canvas) {
-              const centerX = canvas.width / 2;
-              const centerY = canvas.height / 2;
-              
-              const aspectRatio = getSvgAspectRatio(moleculeData.svgData);
-              const baseHeight = 180;
-              const baseWidth = baseHeight * aspectRatio;
-              const startX = centerX - baseWidth / 2;
-              const startY = centerY - baseHeight / 2;
-              const endX = centerX + baseWidth / 2;
-              const endY = centerY + baseHeight / 2;
-
-              const newMolecule: Shape = {
-                id: `molecule-${Date.now()}`,
-                type: 'molecule',
-                startX,
-                startY,
-                endX,
-                endY,
-                color: chemistryColor,
-                strokeColor: chemistryStrokeColor,
-                size: Math.max(baseWidth, baseHeight),
-                rotation: 0,
-                maintainAspect: true,
-                aspectRatio,
-                originalWidth: baseWidth,
-                originalHeight: baseHeight,
-                use3D: false,
-                rotation3D: { ...DEFAULT_MOLECULE_3D_ROTATION },
-                moleculeData: {
-                  ...moleculeData,
-                  displayName: moleculeData.name,
-                }
-              };
-              
-              const updatedShapes = [...canvasHistoryRef.current, newMolecule];
-              setShapes(updatedShapes);
-              canvasHistoryRef.current = updatedShapes;
-              setSelectedShapeId(newMolecule.id);
-              setChemistryTool('move');
-              
-              // Callback if provided
-              if (onMoleculeInserted) {
-                onMoleculeInserted(moleculeData);
+            void (async () => {
+              try {
+                await insertMoleculeToCanvas(moleculeData);
+              } catch (error) {
+                console.error('Failed to insert molecule from search:', error);
+              } finally {
+                setShowMoleculeSearch(false);
               }
-              
-              console.log('✅ Molecule added to canvas:', newMolecule);
-            }
-            setShowMoleculeSearch(false);
+            })();
+          }}
+        />
+      )}
+
+      {showMineralSearch && (
+        <MineralSearch
+          onClose={() => setShowMineralSearch(false)}
+          onSelectMineral={(moleculeData) => {
+            void (async () => {
+              try {
+                await insertMoleculeToCanvas(moleculeData);
+              } catch (error) {
+                console.error('Failed to insert mineral structure:', error);
+              } finally {
+                setShowMineralSearch(false);
+              }
+            })();
+          }}
+        />
+      )}
+
+      {/* Reagent Search Modal */}
+      {showReagentSearch && (
+        <ReagentSearch
+          onClose={() => setShowReagentSearch(false)}
+          onSelectReagent={(moleculeData) => {
+            void (async () => {
+              try {
+                await insertMoleculeToCanvas({
+                  ...moleculeData,
+                  role: 'reagent',
+                });
+              } catch (error) {
+                console.error('Failed to insert reagent molecule:', error);
+              } finally {
+                setShowReagentSearch(false);
+              }
+            })();
           }}
         />
       )}
